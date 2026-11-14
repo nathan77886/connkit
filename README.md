@@ -18,6 +18,8 @@ Currently available: encrypted connection/proxy configuration, editable API keys
 
 ### Admin console
 
+The console supports Simplified Chinese and English, follows the browser language initially, and remembers the selected language. Switch languages on the login page or in the top navigation without losing form drafts.
+
 - Manage system connections, credentials, groups, and connection settings.
 - Create, expire, disable, and revoke API keys with access to selected connections.
 - Configure the connections available through the unauthenticated listener and optional IP/CIDR restrictions.
