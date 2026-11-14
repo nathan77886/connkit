@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+/data/
+/bin/
+*.db
+*.db-shm
+*.db-wal
+admin-web/node_modules/
+admin-web/dist/
+*.tsbuildinfo
