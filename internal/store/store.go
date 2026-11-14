@@ -16,6 +16,12 @@ import (
 	"path/filepath"
 	"time"
 
+	"database/sql"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -70,16 +76,14 @@ type Store struct {
 	seal cipher.AEAD
 }
 
-// Open initializes the local schema only when migrate is true (Admin ownership).
+// Open initializes a SQLite configuration store (kept for embedded use).
 func Open(path, masterKey string, migrate bool) (*Store, error) {
-	if !migrate {
-		if _, err := os.Stat(path); err != nil {
-			return nil, fmt.Errorf("configuration database: %w (start Admin first)", err)
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return nil, err
-	}
+	return OpenDatabase("sqlite", path, masterKey, migrate)
+}
+
+// OpenDatabase opens only ConnKit's own configuration store. Admin owns migrations;
+// MCP requires an initialized schema and never creates tables.
+func OpenDatabase(driver, source, masterKey string, migrate bool) (*Store, error) {
 	raw, err := base64.StdEncoding.DecodeString(masterKey)
 	if err != nil || len(raw) != 32 {
 		return nil, errors.New("CONNKIT_MASTER_KEY must be a base64-encoded 32-byte key")
@@ -92,28 +96,89 @@ func Open(path, masterKey string, migrate bool) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := gorm.Open(sqlite.Open(path+"?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	var dialect gorm.Dialector
+	var pgDB *sql.DB
+	switch driver {
+	case "sqlite":
+		if source == "" {
+			return nil, errors.New("SQLite path required")
+		}
+		if !migrate {
+			if _, err = os.Stat(source); err != nil {
+				return nil, fmt.Errorf("configuration database: %w (start Admin first)", err)
+			}
+		}
+		if err = os.MkdirAll(filepath.Dir(source), 0700); err != nil {
+			return nil, err
+		}
+		dialect = sqlite.Open(source + "?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on")
+	case "postgres":
+		if strings.TrimSpace(source) == "" {
+			return nil, errors.New("CONNKIT_DB_DSN is required for PostgreSQL")
+		}
+		cfg, parseErr := pgx.ParseConfig(source)
+		if parseErr != nil {
+			return nil, errors.New("invalid PostgreSQL configuration DSN")
+		}
+		cfg.ConnectTimeout = 10 * time.Second
+		cfg.RuntimeParams["application_name"] = "connkit"
+		pgDB = stdlib.OpenDB(*cfg)
+		dialect = postgres.New(postgres.Config{Conn: pgDB})
+	default:
+		return nil, errors.New("CONNKIT_DB_DRIVER must be sqlite or postgres")
+	}
+	db, err := gorm.Open(dialect, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent), DisableAutomaticPing: true})
 	if err != nil {
-		return nil, err
+		if pgDB != nil {
+			_ = pgDB.Close()
+		}
+		return nil, errors.New("cannot open configuration database")
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
-		return nil, err
+		return nil, errors.New("cannot access configuration database pool")
 	}
-	sqlDB.SetMaxOpenConns(1)
-	s := &Store{DB: db, seal: seal}
+	if driver == "sqlite" {
+		sqlDB.SetMaxOpenConns(1)
+	} else {
+		sqlDB.SetMaxOpenConns(10)
+		sqlDB.SetMaxIdleConns(2)
+		sqlDB.SetConnMaxLifetime(30 * time.Minute)
+		sqlDB.SetConnMaxIdleTime(5 * time.Minute)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err = sqlDB.PingContext(ctx); err != nil {
+		_ = sqlDB.Close()
+		return nil, errors.New("configuration database connection/authentication failed")
+	}
+	models := []any{&Key{}, &Connection{}, &Proxy{}, &Session{}, &Setting{}, &File{}, &Call{}}
 	if migrate {
-		err = db.AutoMigrate(&Key{}, &Connection{}, &Proxy{}, &Session{}, &Setting{}, &File{}, &Call{})
+		if err = db.WithContext(ctx).AutoMigrate(models...); err != nil {
+			_ = sqlDB.Close()
+			return nil, errors.New("configuration schema migration failed")
+		}
+	} else {
+		for _, model := range models {
+			statement := &gorm.Statement{DB: db}
+			if err = statement.Parse(model); err != nil {
+				_ = sqlDB.Close()
+				return nil, errors.New("cannot inspect configuration schema")
+			}
+			// Selecting every required column also rejects incomplete/old schemas.
+			if err = db.WithContext(ctx).Model(model).Select(statement.Schema.DBNames).Limit(0).Find(model).Error; err != nil {
+				_ = sqlDB.Close()
+				return nil, errors.New("configuration schema is not initialized (start Admin first)")
+			}
+		}
 	}
-	if err != nil {
-		_ = sqlDB.Close()
-		return nil, err
+	if driver == "sqlite" {
+		if err = os.Chmod(source, 0600); err != nil {
+			_ = sqlDB.Close()
+			return nil, err
+		}
 	}
-	if err = os.Chmod(path, 0600); err != nil {
-		_ = sqlDB.Close()
-		return nil, err
-	}
-	return s, nil
+	return &Store{DB: db, seal: seal}, nil
 }
 
 // Close releases the database pool.

@@ -67,9 +67,9 @@ ConnKit has three source modules and two backend processes:
 
 Tool calls pass through the listener's authentication policy, connection authorization, and protocol adapter before reaching the target directly or through its configured proxy. Both MCP listeners share the same tool implementation; their authentication policies remain separate.
 
-The stack is Go, the official MCP Go SDK, React, Vite, Arco Design, and a shared local SQLite configuration database. **GORM and Go models apply to ConnKit's own configuration data.** Target databases use their respective drivers and retain native query semantics. RDP uses a dedicated internal desktop protocol backend where required.
+The stack is Go, the official MCP Go SDK, React, Vite, Arco Design, and a shared SQLite or PostgreSQL configuration database. **GORM and Go models apply to ConnKit's own configuration data.** Target databases use their respective drivers and retain native query semantics. RDP uses a dedicated internal desktop protocol backend where required.
 
-GitHub Actions is configured to build two images: `connkit-mcp` for MCP, and `connkit-admin` containing Nginx, the Admin backend, and compiled Admin Web assets. Both processes share a local configuration volume; Admin owns schema initialization. Images are published only after a successful workflow run.
+GitHub Actions is configured to build two images: `connkit-mcp` for MCP, and `connkit-admin` containing Nginx, the Admin backend, and compiled Admin Web assets. Both processes share the configured database; SQLite mode uses a shared local volume. Admin owns schema initialization. Images are published only after a successful workflow run.
 
 See the [implementation design](docs/architecture.md) for details.
 

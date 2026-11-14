@@ -3,9 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/nathan77886/connkit/internal/config"
-	"github.com/nathan77886/connkit/internal/store"
-	service "github.com/nathan77886/connkit/mcp"
 	"log"
 	"net/http"
 	"net/netip"
@@ -14,10 +11,14 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/nathan77886/connkit/internal/config"
+	"github.com/nathan77886/connkit/internal/store"
+	service "github.com/nathan77886/connkit/mcp"
 )
 
 func main() {
-	s, err := store.Open(config.Env("CONNKIT_DB_PATH", "data/connkit.db"), os.Getenv("CONNKIT_MASTER_KEY"), false)
+	s, err := store.OpenDatabase(config.Env("CONNKIT_DB_DRIVER", "sqlite"), config.DatabaseSource(), os.Getenv("CONNKIT_MASTER_KEY"), false)
 	if err != nil {
 		log.Fatal(err)
 	}

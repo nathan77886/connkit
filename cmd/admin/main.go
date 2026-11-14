@@ -1,15 +1,16 @@
 package main
 
 import (
+	"log"
+	"os"
+
 	"github.com/nathan77886/connkit/admin"
 	"github.com/nathan77886/connkit/internal/config"
 	"github.com/nathan77886/connkit/internal/store"
-	"log"
-	"os"
 )
 
 func main() {
-	s, err := store.Open(config.Env("CONNKIT_DB_PATH", "data/connkit.db"), os.Getenv("CONNKIT_MASTER_KEY"), true)
+	s, err := store.OpenDatabase(config.Env("CONNKIT_DB_DRIVER", "sqlite"), config.DatabaseSource(), os.Getenv("CONNKIT_MASTER_KEY"), true)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -1,8 +1,10 @@
 services:
   admin:
-    image: ghcr.io/nathan77886/connkit-admin:${CONNKIT_IMAGE_TAG:-main}
+    image: ${CONNKIT_ADMIN_IMAGE:-ghcr.io/nathan77886/connkit-admin:${CONNKIT_IMAGE_TAG:-main}}
     restart: unless-stopped
     environment:
+      CONNKIT_DB_DRIVER: ${CONNKIT_DB_DRIVER:-sqlite}
+      CONNKIT_DB_DSN: ${CONNKIT_DB_DSN:-}
       CONNKIT_DB_PATH: /data/connkit.db
       CONNKIT_MASTER_KEY: ${CONNKIT_MASTER_KEY:?Set a base64-encoded 32-byte master key}
       CONNKIT_ADMIN_USERNAME: ${CONNKIT_ADMIN_USERNAME:-admin}
@@ -12,12 +14,14 @@ services:
     ports:
       - '127.0.0.1:8080:80'
   mcp:
-    image: ghcr.io/nathan77886/connkit-mcp:${CONNKIT_IMAGE_TAG:-main}
+    image: ${CONNKIT_MCP_IMAGE:-ghcr.io/nathan77886/connkit-mcp:${CONNKIT_IMAGE_TAG:-main}}
     restart: unless-stopped
     depends_on:
       admin:
         condition: service_healthy
     environment:
+      CONNKIT_DB_DRIVER: ${CONNKIT_DB_DRIVER:-sqlite}
+      CONNKIT_DB_DSN: ${CONNKIT_DB_DSN:-}
       CONNKIT_DB_PATH: /data/connkit.db
       CONNKIT_MASTER_KEY: ${CONNKIT_MASTER_KEY:?Set a base64-encoded 32-byte master key}
       CONNKIT_MCP_ADDR: ':8081'

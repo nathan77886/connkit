@@ -20,7 +20,7 @@ RDP and Kubernetes streaming operations remain unimplemented. Protocol settings 
 Requirements: Go (see `go.mod`), a C compiler for the SQLite driver, Node.js 22.12+ (or a compatible newer LTS), and npm.
 
 1. Copy `.env.example` to `.env`, generate an independent 32-byte master key with `openssl rand -base64 32`, and set an administrator password. Never commit `.env`.
-2. Export those variables into the environment of each Go process. Both services require the same `CONNKIT_MASTER_KEY` and `CONNKIT_DB_PATH`.
+2. Export those variables into the environment of each Go process. Both services require the same `CONNKIT_MASTER_KEY` and storage configuration (`CONNKIT_DB_PATH` for SQLite, or `CONNKIT_DB_DRIVER=postgres` plus `CONNKIT_DB_DSN` for PostgreSQL).
 3. Start Admin first to initialize its configuration schema:
 
    ```sh
@@ -51,7 +51,9 @@ The current MCP transport is stateless. Each request revalidates the API key and
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `CONNKIT_DB_PATH` | Shared local configuration database | `data/connkit.db` |
+| `CONNKIT_DB_DRIVER` | Configuration database: `sqlite` or `postgres` | `sqlite` |
+| `CONNKIT_DB_DSN` | PostgreSQL configuration database DSN; required for `postgres` | Unset |
+| `CONNKIT_DB_PATH` | Shared SQLite configuration database path | `data/connkit.db` |
 | `CONNKIT_MASTER_KEY` | Base64-encoded 32-byte encryption key | Required |
 | `CONNKIT_ADMIN_USERNAME` | Administrator username | `admin` |
 | `CONNKIT_ADMIN_PASSWORD` | Administrator password, 12–72 bytes | Required by Admin |
@@ -65,7 +67,24 @@ Clients that omit the Origin header can connect subject to the listener's normal
 
 The Admin password is loaded at process startup. Changing it requires a restart and does not revoke existing Admin sessions, which expire after eight hours. Keep the master key stable; key rotation is not implemented. Back up the SQLite database using SQLite-aware methods and preserve the master key separately.
 
-Both processes use the same local SQLite file and its WAL sidecar files on a shared local volume. Only Admin runs schema migration. This arrangement targets a single-host deployment; do not place the database on a shared network filesystem or deploy independent configuration database copies.
+SQLite mode uses one local file and WAL sidecars on a shared local volume. Do not put SQLite on a network filesystem. PostgreSQL mode connects both processes to the same dedicated database/role using `CONNKIT_DB_DSN`; no shared configuration file is required. Only Admin migrates ConnKit-owned tables. MCP verifies all required tables/columns before starting and never migrates the schema. Start one Admin instance before MCP.
+
+To reuse an existing PostgreSQL server, create an independent database owned by a non-superuser ConnKit role and set:
+
+```dotenv
+CONNKIT_DB_DRIVER=postgres
+CONNKIT_DB_DSN=postgres://connkit:replace-me@postgres-host:5432/connkit?sslmode=verify-full
+```
+
+Use a hostname reachable from both containers, and attach the Compose services to the database's Docker network when needed through a machine-specific Compose override. A host loopback address inside a container refers to that container. Use `sslmode=disable` only for an explicitly trusted private transport; verify server certificates for remote database connections. Percent-encode special password characters in URL DSNs. Keep the DSN and master key outside Git. Existing SQLite data is not automatically imported when switching drivers; use a fresh store or plan migration separately.
+
+The PostgreSQL integration test runs in a randomly named temporary schema, cleans it up afterward, and exercises Admin/MCP, encryption, key revocation, upserts and concurrent transfer claims:
+
+```sh
+CONNKIT_TEST_POSTGRES_DSN='postgres://...' go test -race -tags=integration -run TestPostgresConfigurationStore ./internal/store
+```
+
+Use a dedicated test database/role with schema creation permission.
 
 GORM and explicit Go models apply to ConnKit's own persistence. Target databases use their native drivers; target schemas must never be automatically migrated.
 
@@ -78,7 +97,7 @@ GitHub Actions builds exactly two `linux/amd64` images:
 
 The combined Admin entrypoint supervises both processes, forwards shutdown signals, and exits if either process stops. Its health check calls the backend through Nginx and checks configuration database connectivity.
 
-Pull requests build without publishing. Pushes to `main`, `v*` tags, and manual workflow runs publish to GHCR after tests and checks pass. Tags include the branch or version plus a full commit SHA. Image availability depends on the first successful workflow run; image names in this document do not indicate that images have already been published.
+Pull requests build without publishing. Pushes to `main`, `v*` tags, and manual workflow runs publish to GHCR after tests and checks pass. Tags include the branch or version plus a full commit SHA. Set `CONNKIT_ADMIN_IMAGE` and `CONNKIT_MCP_IMAGE` to immutable `image@sha256:...` references to pin verified builds; these override the tag. Image availability depends on the first successful workflow run; image names in this document do not indicate that images have already been published.
 
 After images have been published, configure `.env` and run:
 

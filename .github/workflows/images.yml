@@ -14,6 +14,17 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: connkit_test
+          POSTGRES_PASSWORD: connkit-fixture-only
+          POSTGRES_DB: connkit_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U connkit_test -d connkit_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -21,6 +32,10 @@ jobs:
           go-version: '1.26.x'
           cache: true
       - run: go test -race -shuffle=on ./...
+      - name: PostgreSQL configuration store integration
+        run: go test -race -tags=integration -timeout=120s -run TestPostgresConfigurationStore ./internal/store
+        env:
+          CONNKIT_TEST_POSTGRES_DSN: postgres://connkit_test:connkit-fixture-only@127.0.0.1:5432/connkit_test?sslmode=disable
       - run: go vet ./...
       - uses: golangci/golangci-lint-action@v9
         with:

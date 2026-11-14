@@ -67,7 +67,7 @@ ConnKit 采用三个源码模块、两个后端进程的结构：
 
 工具调用依次经过监听端口的认证策略、连接权限检查和协议适配器，再通过直连或指定代理访问目标。两个 MCP 端口共用工具实现，各自保持独立的认证策略。
 
-技术方案采用 Go、官方 MCP Go SDK、React、Vite、Arco Design 和共享的本地 SQLite 配置库。**GORM 和 Go model 仅用于 ConnKit 自身配置数据的访问规范。** 目标数据库使用对应驱动，保留原生查询语义。RDP 按需接入内部图形协议后端。
+技术方案采用 Go、官方 MCP Go SDK、React、Vite、Arco Design 和共享的SQLite 或 PostgreSQL 配置库。**GORM 和 Go model 仅用于 ConnKit 自身配置数据的访问规范。** 目标数据库使用对应驱动，保留原生查询语义。RDP 按需接入内部图形协议后端。
 
 GitHub Actions 配置为构建两个镜像：`connkit-mcp` 运行 MCP；`connkit-admin` 包含 Nginx、Admin 后端和编译后的 Admin Web 静态资源。两个后端进程共享本地配置数据卷，Admin 负责初始化表结构。镜像需在工作流实际运行成功后才会发布。
 

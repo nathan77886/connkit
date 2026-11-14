@@ -10,7 +10,7 @@
 - **Admin Web**：React、Vite、TypeScript 和 Arco Design 管理页面，管理密钥、访问策略、系统连接及代理器。
 - **MCP**：供 agent 发现连接、调用工具；提供两个端口：内网端口免密钥认证，另一个端口强制使用密钥。内网端口可按需增加 IP/CIDR 访问限制。
 
-Go 后端配合官方 MCP Go SDK；Admin Web 独立构建为静态资源，由 Nginx 托管。两个后端进程共享本地 SQLite 配置库，使用 WAL 模式，仅由 Admin 负责本地 schema 迁移。服务自身的本地配置库使用 GORM 和 Go model；外部 SQL 数据库通过对应驱动访问。协议适配器、代理拨号、连接池及必要会话均为进程内部模块。RDP 如需 guacd 等协议组件，作为内部依赖接入。
+Go 后端配合官方 MCP Go SDK；Admin Web 独立构建为静态资源，由 Nginx 托管。两个后端进程共享SQLite 或 PostgreSQL 配置库，使用 WAL 模式，仅由 Admin 负责本地 schema 迁移。服务自身的本地配置库使用 GORM 和 Go model；外部 SQL 数据库通过对应驱动访问。协议适配器、代理拨号、连接池及必要会话均为进程内部模块。RDP 如需 guacd 等协议组件，作为内部依赖接入。
 
 ## 2. 调用路径
 
@@ -100,7 +100,7 @@ Admin 提供服务级云存储配置：Endpoint、Region、Bucket、Access Key�
 
 ### 本地配置库开发规范
 
-ConnKit 自身的密钥、系统连接、代理器等数据保存在本地 SQLite 配置库，使用明确的 Go model 和 GORM 完成查询及持久化。自动迁移仅限本服务拥有的配置库。
+ConnKit 自身的密钥、系统连接、代理器等数据保存在SQLite 或 PostgreSQL 配置库，使用明确的 Go model 和 GORM 完成查询及持久化。自动迁移仅限本服务拥有的配置库。
 
 GORM 和模型查询是服务内部数据访问的开发规范，不约束 MCP 访问目标系统的方式，也不要求为目标数据库生成 Go model。
 
@@ -144,7 +144,7 @@ RDP 需要内部图形会话后端，可复用 Guacamole/FreeRDP。给 agent 提
 
 GitHub Actions 构建两个镜像：`connkit-mcp` 运行 MCP；`connkit-admin` 包含 Nginx、Admin 后端及 Admin Web 静态资源。Admin 后端在合并镜像内监听 loopback，由 Nginx 转发 `/api/` 请求，并托管前端页面。进程入口负责信号转发及任一子进程退出后的整体停止。
 
-运行时共享一个本地配置数据卷，主密钥通过环境单独注入。具体环境变量、构建触发条件及镜像标签见 [开发与打包说明](development.md)。涉及 RDP 时按需增加内部协议依赖。
+SQLite 模式共享本地配置数据卷；PostgreSQL 模式连接同一独立配置数据库。主密钥通过环境单独注入。具体环境变量、构建触发条件及镜像标签见 [开发与打包说明](development.md)。涉及 RDP 时按需增加内部协议依赖。
 
 实施顺序：
 

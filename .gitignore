@@ -9,3 +9,7 @@
 admin-web/node_modules/
 admin-web/dist/
 *.tsbuildinfo
+
+# Machine-specific deployment and acceptance artifacts.
+compose.local.yaml
+.local/

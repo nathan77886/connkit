@@ -57,8 +57,10 @@ func (s *Service) openSQL(ctx context.Context, c store.Connection, cfg Settings,
 		}
 		// Refuse ConnKit's configuration database, including symlink aliases.
 		var databases []struct{ File string }
-		if err := s.Store.DB.Raw("PRAGMA database_list").Scan(&databases).Error; err != nil {
-			return nil, errors.New("cannot verify SQLite path")
+		if s.Store.DB.Name() == "sqlite" {
+			if err := s.Store.DB.WithContext(ctx).Raw("PRAGMA database_list").Scan(&databases).Error; err != nil {
+				return nil, errors.New("cannot verify SQLite path")
+			}
 		}
 		target, err := filepath.EvalSymlinks(cfg.Path)
 		if err != nil {

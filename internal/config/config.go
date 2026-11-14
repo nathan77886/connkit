@@ -10,3 +10,11 @@ func Env(name, fallback string) string {
 	}
 	return fallback
 }
+
+// DatabaseSource keeps a missing PostgreSQL DSN from falling back to a file path.
+func DatabaseSource() string {
+	if Env("CONNKIT_DB_DRIVER", "sqlite") == "postgres" {
+		return os.Getenv("CONNKIT_DB_DSN")
+	}
+	return Env("CONNKIT_DB_PATH", "data/connkit.db")
+}
