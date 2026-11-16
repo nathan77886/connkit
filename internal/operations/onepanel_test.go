@@ -50,6 +50,7 @@ func TestOnePanelSessionAuthenticationAndTerminal(t *testing.T) {
 			return
 		}
 		wrapped, _ := base64.StdEncoding.DecodeString(parts[0])
+		//nolint:staticcheck // Mirrors 1Panel v2 RSA PKCS#1 v1.5 key wrapping.
 		aesKey, err := rsa.DecryptPKCS1v15(rand.Reader, key, wrapped)
 		if err != nil {
 			t.Error(err)

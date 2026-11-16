@@ -41,7 +41,7 @@ func panelBase(cfg Settings) (*url.URL, error) {
 	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
 		return nil, errors.New("1Panel base_url must be an origin; configure entrance separately")
 	}
-	if u.Scheme != "https" && !(u.Scheme == "http" && cfg.AllowHTTP) {
+	if u.Scheme != "https" && (u.Scheme != "http" || !cfg.AllowHTTP) {
 		return nil, errors.New("1Panel requires HTTPS, or explicit allow_http for an HTTP panel")
 	}
 	if strings.ContainsAny(cfg.Entrance, "\\\r\n\x00?#") {
@@ -232,6 +232,7 @@ func panelPassword(cookie, password string) (string, error) {
 		return "", err
 	}
 	aesKey := []byte(hex.EncodeToString(seed))
+	//nolint:staticcheck // 1Panel v2 mandates RSA PKCS#1 v1.5 key wrapping in its login protocol.
 	wrapped, err := rsa.EncryptPKCS1v15(rand.Reader, pub, aesKey)
 	if err != nil {
 		return "", errors.New("1Panel password encryption failed")
@@ -282,7 +283,7 @@ func (s *Service) onepanel(ctx context.Context, c store.Connection, cfg Settings
 		if strings.Contains(lower, "auth") || strings.Contains(lower, "terminal") || strings.Contains(lower, "exec") {
 			return nil, errors.New("1Panel authentication and terminal endpoints are reserved")
 		}
-		if !panelRead(method, u.Path) && !(cfg.AllowWrite && cfg.AllowExec) {
+		if !panelRead(method, u.Path) && (!cfg.AllowWrite || !cfg.AllowExec) {
 			return nil, errors.New("unclassified 1Panel API operations require both allow_write and allow_exec")
 		}
 		if len(body) > MaxBytes/2 || (len(body) > 0 && !json.Valid(body)) {
