@@ -6,7 +6,7 @@
 
 ConnKit brings system connections, credentials, and outbound proxies into one admin console, then exposes operations through the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/). It is designed to let agents work with databases, servers, Kubernetes clusters, remote desktops, and HTTPS APIs through a common entry point.
 
-> **Project status:** Early development. Admin, dual MCP listeners, SQL/SSH/Redis/MongoDB/HTTPS/Kubernetes resource tools, and S3-staged SSH file delivery are implemented. RDP and streaming Kubernetes operations remain planned; real target acceptance is required before deployment.
+> **Project status:** Early development. Admin, dual MCP listeners, SQL/SSH/Redis/MongoDB/HTTPS/Kubernetes resource tools, and S3-staged SSH file delivery are implemented. RDP testing/desktops/screenshots/input are implemented through bundled FreeRDP; streaming Kubernetes operations remain planned; real target acceptance is required before deployment.
 
 ## Getting started
 
@@ -38,7 +38,7 @@ The console supports Simplified Chinese and English, follows the browser languag
 
 - **SSH:** File delivery through S3-compatible storage, with target-side download and SHA-256 verification. Remote commands (explicit opt-in) and bounded SFTP reads are available.
 - **Kubernetes:** Resource inspection, bounded logs, server-side apply and delete. Exec/streaming operations remain planned.
-- **RDP (planned):** Remote desktop sessions, screenshots, and keyboard/mouse input.
+- **RDP:** Remote desktop sessions, screenshots, and keyboard/mouse input.
 - **MongoDB:** Collection discovery, document queries, aggregation, and authorized writes.
 - **Redis:** Key scanning, data access, and authorized commands.
 - **MySQL / PostgreSQL:** Schema inspection, parameterized SQL queries, and authorized writes through native database drivers.
@@ -74,6 +74,10 @@ The stack is Go, the official MCP Go SDK, React, Vite, Arco Design, and a shared
 GitHub Actions is configured to build two images: `connkit-mcp` for MCP, and `connkit-admin` containing Nginx, the Admin backend, and compiled Admin Web assets. Both processes share the configured database; SQLite mode uses a shared local volume. Admin owns schema initialization. Images are published only after a successful workflow run.
 
 See the [implementation design](docs/architecture.md) for details.
+
+## 1Panel
+
+Manage 1Panel v2 through encrypted panel credentials or an API key: bounded API reads, container logs and opt-in container terminal commands. See [protocol settings](docs/protocols.md#1panel-v2) for HTTP opt-in, authentication and permissions.
 
 ## Access and credentials
 

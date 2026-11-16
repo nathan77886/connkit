@@ -78,6 +78,10 @@ func TestAdminLoginConfigurationAndKeyLifecycle(t *testing.T) {
 	if status != 200 || strings.Contains(string(body), "not-in-response") {
 		t.Fatalf("connection save %d %s", status, body)
 	}
+	status, body = call("POST", "/api/v1/connections", token, `{"name":"panel","type":"onepanel","enabled":true,"settings":{"base_url":"https://panel.example","api_key":"panel-key-not-in-response"}}`)
+	if status != 200 || strings.Contains(string(body), "panel-key-not-in-response") {
+		t.Fatalf("1Panel save %d %s", status, body)
+	}
 	status, body = call("POST", "/api/v1/keys", token, `{"name":"agent","connection_ids":[1]}`)
 	if status != 200 {
 		t.Fatalf("key save %d %s", status, body)

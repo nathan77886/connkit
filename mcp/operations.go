@@ -12,9 +12,15 @@ import (
 	"github.com/nathan77886/connkit/internal/store"
 )
 
-func registerOperations(server *sdk.Server, s *store.Store, token string, anonymous bool) {
-	service := &operations.Service{Store: s}
+func registerOperations(server *sdk.Server, s *store.Store, token string, anonymous bool, caller string, service *operations.Service) {
 	tools := map[string]string{
+		"onepanel_request":  "Call a relative 1Panel v2 API path using method and JSON body. Known read endpoints work by default; other endpoints require both allow_write and allow_exec. Authentication and terminal endpoints are reserved. No automatic retries.",
+		"onepanel_logs":     "Read bounded 1Panel container logs using container and optional limit (tail lines).",
+		"onepanel_exec":     "Execute command inside a 1Panel container using container ID and command; requires allow_exec. Returns output and exit_code only after a completion marker. Never retry an unknown outcome.",
+		"rdp_open":          "Open a real RDP desktop; optional width (640..1280), height (480..1024). Returns private session_id. Max lifetime 600s, idle 120s.",
+		"rdp_screenshot":    "Capture real desktop PNG using connection_id and session_id; returns bounded data_base64. Retry if no frame has arrived yet.",
+		"rdp_input":         "Send input using connection_id, session_id, action: mouse_move (x,y), mouse_button (x,y,button:left/right/middle,down), key (scan_code,down). Requires allow_rdp_input. No retries for unknown results.",
+		"rdp_close":         "Close private RDP session using connection_id and session_id; releases backend and route.",
 		"connection_test":   "Test protocol authentication through the configured route. HTTP returns the real status; successful transport alone does not prove business acceptance.",
 		"db_tables":         "List tables of a registered SQLite/MySQL/PostgreSQL database.",
 		"db_schema":         "Inspect columns using table and connection_id.",
@@ -40,7 +46,7 @@ func registerOperations(server *sdk.Server, s *store.Store, token string, anonym
 	}
 	for name, description := range tools {
 		sdk.AddTool(server, &sdk.Tool{Name: name, Description: description}, func(ctx context.Context, _ *sdk.CallToolRequest, in operations.Input) (*sdk.CallToolResult, any, error) {
-			out, err := service.Run(ctx, operations.Actor{Token: token, Anonymous: anonymous}, name, in)
+			out, err := service.Run(ctx, operations.Actor{Token: token, Anonymous: anonymous, Caller: caller}, name, in)
 			return nil, out, err
 		})
 	}

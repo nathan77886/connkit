@@ -93,7 +93,7 @@ func TestToolRegistrationAuditAndLiveCIDRPolicy(t *testing.T) {
 		return w
 	}
 	w := request("tools/list", `{}`)
-	for _, name := range []string{"db_query", "ssh_exec", "https_request", "k8s_get", "mongo_find", "redis_scan", "sftp_read", "connection_test"} {
+	for _, name := range []string{"db_query", "ssh_exec", "https_request", "k8s_get", "mongo_find", "redis_scan", "sftp_read", "connection_test", "onepanel_request", "onepanel_logs", "onepanel_exec"} {
 		if !strings.Contains(w.Body.String(), name) {
 			t.Fatalf("missing %s: %s", name, w.Body)
 		}

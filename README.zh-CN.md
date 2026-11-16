@@ -6,7 +6,7 @@
 
 ConnKit 通过一个管理控制台集中管理系统连接、凭据和出站代理，再通过 [Model Context Protocol（MCP）](https://modelcontextprotocol.io/) 提供操作接口，让 agent 通过统一入口访问数据库、服务器、Kubernetes 集群、远程桌面和 HTTPS API。
 
-> **项目状态：** 早期开发阶段。已实现 Admin、双端口 MCP、SQL/SSH/Redis/MongoDB/HTTPS/Kubernetes 资源操作，以及 S3 中转的 SSH 文件发送。RDP 和 Kubernetes 流式操作仍待实现，部署前需完成真实目标验收。
+> **项目状态：** 早期开发阶段。已实现 Admin、双端口 MCP、SQL/SSH/Redis/MongoDB/HTTPS/Kubernetes 资源操作，以及 S3 中转的 SSH 文件发送。RDP 测试、桌面、截图及输入已通过内置 FreeRDP 实现；Kubernetes 流式操作仍待实现，部署前需完成真实目标验收。
 
 ## 开始了解
 
@@ -38,7 +38,7 @@ ConnKit 通过一个管理控制台集中管理系统连接、凭据和出站代
 
 - **SSH：** 文件先上传至 S3 兼容存储，再由目标端下载并校验 SHA-256；已支持显式开启后的远程命令和有大小限制的 SFTP 读取。
 - **Kubernetes：** 资源查看、有限日志读取、服务端 apply 和删除；exec/流式功能尚未实现。
-- **RDP（规划）：** 远程桌面会话、截图和键鼠输入。
+- **RDP：** 远程桌面会话、截图和键鼠输入。
 - **MongoDB：** 集合发现、文档查询、聚合及授权写入。
 - **Redis：** Key 扫描、数据访问及授权命令调用。
 - **MySQL / PostgreSQL：** 通过原生数据库驱动查看表结构、执行参数化 SQL 查询及授权写入。
@@ -100,3 +100,7 @@ GitHub Actions 配置为构建两个镜像：`connkit-mcp` 运行 MCP；`connkit
 ## 许可证
 
 本项目采用 [MIT 许可证](LICENSE)。
+
+## 1Panel
+
+新增 `onepanel` 连接类型，支持 1Panel v2 面板账号密码、API Key 或已有会话认证，提供 API 读取、容器日志和显式授权的容器终端命令。HTTP 面板需设置 `allow_http:true`；写入和命令默认关闭。详见 [协议文档](docs/protocols.md#1panel-v2)。

@@ -22,11 +22,22 @@ type Actor struct {
 	Admin     bool
 	Token     string
 	Anonymous bool
+	Caller    string
 }
 
 // Input contains only operation data, never target addresses or credentials.
 type Input struct {
 	ConnectionID uint     `json:"connection_id"`
+	Container    string   `json:"container,omitempty"`
+	SessionID    string   `json:"session_id,omitempty"`
+	Width        int      `json:"width,omitempty"`
+	Height       int      `json:"height,omitempty"`
+	Action       string   `json:"action,omitempty"`
+	X            int      `json:"x,omitempty"`
+	Y            int      `json:"y,omitempty"`
+	Button       string   `json:"button,omitempty"`
+	ScanCode     int      `json:"scan_code,omitempty"`
+	Down         bool     `json:"down,omitempty"`
 	Query        string   `json:"query,omitempty"`
 	Params       []any    `json:"params,omitempty"`
 	Limit        int      `json:"limit,omitempty"`
@@ -46,27 +57,37 @@ type Input struct {
 
 // Settings are encrypted per connection. Writes/arbitrary commands require opt-in.
 type Settings struct {
-	Host           string            `json:"host"`
-	Port           int               `json:"port"`
-	Username       string            `json:"username"`
-	Password       string            `json:"password"`
-	Database       string            `json:"database"`
-	Path           string            `json:"path"`
-	TLS            bool              `json:"tls"`
-	CA             string            `json:"ca_pem"`
-	ClientCert     string            `json:"client_cert_pem"`
-	ClientKey      string            `json:"client_key_pem"`
-	BaseURL        string            `json:"base_url"`
-	Token          string            `json:"token"`
-	Headers        map[string]string `json:"headers"`
-	URI            string            `json:"uri"`
-	AllowWrite     bool              `json:"allow_write"`
-	AllowExec      bool              `json:"allow_exec"`
-	TimeoutSeconds int               `json:"timeout_seconds"`
+	Entrance          string            `json:"entrance"`
+	APIKey            string            `json:"api_key"`
+	SessionCookie     string            `json:"session_cookie"`
+	AllowHTTP         bool              `json:"allow_http"`
+	CertificateSHA256 string            `json:"certificate_sha256"`
+	Domain            string            `json:"domain"`
+	AllowRDPInput     bool              `json:"allow_rdp_input"`
+	Host              string            `json:"host"`
+	Port              int               `json:"port"`
+	Username          string            `json:"username"`
+	Password          string            `json:"password"`
+	Database          string            `json:"database"`
+	Path              string            `json:"path"`
+	TLS               bool              `json:"tls"`
+	CA                string            `json:"ca_pem"`
+	ClientCert        string            `json:"client_cert_pem"`
+	ClientKey         string            `json:"client_key_pem"`
+	BaseURL           string            `json:"base_url"`
+	Token             string            `json:"token"`
+	Headers           map[string]string `json:"headers"`
+	URI               string            `json:"uri"`
+	AllowWrite        bool              `json:"allow_write"`
+	AllowExec         bool              `json:"allow_exec"`
+	TimeoutSeconds    int               `json:"timeout_seconds"`
 }
 
 // Service is stateless: every invocation reloads permissions, credentials and routes.
-type Service struct{ Store *store.Store }
+type Service struct {
+	Store   *store.Store
+	Desktop *DesktopManager
+}
 
 func (s *Service) target(ctx context.Context, a Actor, id uint) (store.Connection, error) {
 	if a.Admin {
@@ -107,6 +128,10 @@ func (s *Service) Run(ctx context.Context, a Actor, tool string, in Input) (out 
 	switch {
 	case tool == "connection_test":
 		out, err = s.test(ctx, c, cfg)
+	case c.Type == "onepanel":
+		out, err = s.onepanel(ctx, c, cfg, tool, in)
+	case c.Type == "rdp":
+		out, err = s.rdp(ctx, a, c, cfg, tool, in)
 	case c.Type == "sqlite" || c.Type == "mysql" || c.Type == "postgres":
 		out, err = s.sql(ctx, c, cfg, tool, in)
 	case c.Type == "ssh":
@@ -157,6 +182,10 @@ func (s *Service) test(ctx context.Context, c store.Connection, cfg Settings) (a
 		if err = db.PingContext(ctx); err != nil {
 			return nil, errors.New("database authentication/ping failed")
 		}
+	case "onepanel":
+		return s.onepanel(ctx, c, cfg, "onepanel_test", Input{})
+	case "rdp":
+		return s.rdpTest(ctx, c, cfg)
 	case "ssh":
 		return s.ssh(ctx, c, cfg, "ssh_test", Input{})
 	case "https":

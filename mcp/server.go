@@ -6,6 +6,7 @@ import (
 	"errors"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nathan77886/connkit/internal/files"
+	"github.com/nathan77886/connkit/internal/operations"
 	"github.com/nathan77886/connkit/internal/store"
 	"net"
 	"net/http"
@@ -17,6 +18,11 @@ import (
 // New creates either a key-authenticated or an explicitly anonymous listener.
 // Stateless transport keeps request credentials out of reusable MCP sessions.
 func New(s *store.Store, anonymous bool, cidrs []netip.Prefix, origins []string) http.Handler {
+	return NewWithOperations(s, anonymous, cidrs, origins, &operations.Service{Store: s})
+}
+
+// NewWithOperations shares a process-wide desktop session manager across listeners.
+func NewWithOperations(s *store.Store, anonymous bool, cidrs []netip.Prefix, origins []string, ops *operations.Service) http.Handler {
 	transport := sdk.NewStreamableHTTPHandler(func(r *http.Request) *sdk.Server {
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		server := sdk.NewServer(&sdk.Implementation{Name: "connkit", Version: "0.1.0-dev"}, nil)
@@ -45,7 +51,8 @@ func New(s *store.Store, anonymous bool, cidrs []netip.Prefix, origins []string)
 			err := service.Remove(ctx, actor, in.ID)
 			return nil, map[string]bool{"removed": err == nil}, err
 		})
-		registerOperations(server, s, token, anonymous)
+		caller, _, _ := net.SplitHostPort(r.RemoteAddr)
+		registerOperations(server, s, token, anonymous, caller, ops)
 		return server
 	}, &sdk.StreamableHTTPOptions{Stateless: true})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

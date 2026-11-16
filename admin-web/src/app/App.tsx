@@ -10,7 +10,7 @@ import { CallsPage, AccessPage } from '../pages/activity';
 
 type Resource = { id: number; name: string; type?: string; enabled?: boolean; allow_anonymous?: boolean; proxy_id?: number; upstream_id?: number; prefix?: string; connection_ids?: number[]; expires_at?: string; settings?: string };
 type Kind = 'connections' | 'proxies' | 'keys';
-const connectionTypes = ['ssh', 'k8s', 'rdp', 'mongodb', 'redis', 'mysql', 'postgres', 'sqlite', 'https'];
+const connectionTypes = ['ssh', 'k8s', 'rdp', 'mongodb', 'redis', 'mysql', 'postgres', 'sqlite', 'https', 'onepanel'];
 
 function Login() {
  const { t } = useI18n();

@@ -8,12 +8,16 @@ services:
       CONNKIT_DB_PATH: /data/connkit.db
       CONNKIT_MASTER_KEY: ${CONNKIT_MASTER_KEY:?Set a base64-encoded 32-byte master key}
       CONNKIT_ADMIN_USERNAME: ${CONNKIT_ADMIN_USERNAME:-admin}
-      CONNKIT_ADMIN_PASSWORD: ${CONNKIT_ADMIN_PASSWORD:?Set an admin password of 12-72 bytes}
+      CONNKIT_ADMIN_PASSWORD: ${CONNKIT_ADMIN_PASSWORD:?Set an admin password of 8-72 bytes}
     volumes:
       - connkit-data:/data
     ports:
       - '127.0.0.1:8080:80'
   mcp:
+    init: true
+    mem_limit: 768m
+    cpus: 2
+    pids_limit: 128
     image: ${CONNKIT_MCP_IMAGE:-ghcr.io/nathan77886/connkit-mcp:${CONNKIT_IMAGE_TAG:-main}}
     restart: unless-stopped
     depends_on:

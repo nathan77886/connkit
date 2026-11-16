@@ -165,3 +165,7 @@ SQLite 模式共享本地配置数据卷；PostgreSQL 模式连接同一独立�
 - MCP 传输规范：https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
 - client-go 代理限制：https://github.com/kubernetes/client-go/blob/master/transport/config.go
 - Guacamole：https://guacamole.apache.org/doc/gug/
+
+## RDP 已实现边界
+
+Admin/MCP 镜像内置 headless FreeRDP 2 子进程。`connection_test` 的协商/TLS 探测与 NLA authentication-only 认证分开；桌面由 MCP 进程级会话管理器持有。后端通过私有管道接收凭据，只允许连接 route 层建立的 loopback 转发端口，截图来自 GDI 帧缓冲。权限、生命周期、输入授权与资源限制详见[协议说明](protocols.md#rdp)。没有新增公开端口或 guacd 服务。

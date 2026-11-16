@@ -56,7 +56,7 @@ The current MCP transport is stateless. Each request revalidates the API key and
 | `CONNKIT_DB_PATH` | Shared SQLite configuration database path | `data/connkit.db` |
 | `CONNKIT_MASTER_KEY` | Base64-encoded 32-byte encryption key | Required |
 | `CONNKIT_ADMIN_USERNAME` | Administrator username | `admin` |
-| `CONNKIT_ADMIN_PASSWORD` | Administrator password, 12–72 bytes | Required by Admin |
+| `CONNKIT_ADMIN_PASSWORD` | Administrator password, 8–72 bytes | Required by Admin |
 | `CONNKIT_ADMIN_ADDR` | Admin backend listener | `127.0.0.1:8080` |
 | `CONNKIT_MCP_ADDR` | MCP API key listener | `:8081` |
 | `CONNKIT_MCP_ANONYMOUS_ADDR` | Anonymous MCP listener | Disabled when unset |

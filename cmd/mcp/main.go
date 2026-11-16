@@ -13,11 +13,24 @@ import (
 	"time"
 
 	"github.com/nathan77886/connkit/internal/config"
+	"github.com/nathan77886/connkit/internal/operations"
 	"github.com/nathan77886/connkit/internal/store"
 	service "github.com/nathan77886/connkit/mcp"
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--healthcheck" {
+		client := &http.Client{Timeout: 2 * time.Second}
+		r, e := client.Get("http://127.0.0.1:8081/healthz")
+		if e != nil {
+			os.Exit(1)
+		}
+		r.Body.Close()
+		if r.StatusCode != 200 {
+			os.Exit(1)
+		}
+		return
+	}
 	s, err := store.OpenDatabase(config.Env("CONNKIT_DB_DRIVER", "sqlite"), config.DatabaseSource(), os.Getenv("CONNKIT_MASTER_KEY"), false)
 	if err != nil {
 		log.Fatal(err)
@@ -36,9 +49,12 @@ func main() {
 		cidrs = append(cidrs, p)
 	}
 	origins := split(os.Getenv("CONNKIT_MCP_ORIGINS"))
-	servers := []*http.Server{{Addr: config.Env("CONNKIT_MCP_ADDR", ":8081"), Handler: service.New(s, false, nil, origins), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}}
+	ops := &operations.Service{Store: s}
+	ops.Desktop = operations.NewDesktopManager(ops)
+	defer ops.Desktop.Close()
+	servers := []*http.Server{{Addr: config.Env("CONNKIT_MCP_ADDR", ":8081"), Handler: service.NewWithOperations(s, false, nil, origins, ops), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}}
 	if addr := os.Getenv("CONNKIT_MCP_ANONYMOUS_ADDR"); addr != "" {
-		servers = append(servers, &http.Server{Addr: addr, Handler: service.New(s, true, cidrs, origins), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second})
+		servers = append(servers, &http.Server{Addr: addr, Handler: service.NewWithOperations(s, true, cidrs, origins, ops), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second})
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

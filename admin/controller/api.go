@@ -26,8 +26,9 @@ type API struct {
 
 // New hashes the operator-provided bootstrap password; there is no default password.
 func New(s *store.Store, username, password string) (*API, error) {
-	if username == "" || len(password) < 12 || len(password) > 72 {
-		return nil, errors.New("admin username and password (12–72 bytes) are required")
+	// Local deployment override: the upstream 12-byte floor is relaxed to 8 bytes.
+	if username == "" || len(password) < 8 || len(password) > 72 {
+		return nil, errors.New("admin username and password (8–72 bytes) are required")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -182,7 +183,7 @@ func (a *API) SaveConnection(ctx iris.Context) {
 		AllowAnonymous bool            `json:"allow_anonymous"`
 		Settings       json.RawMessage `json:"settings"`
 	}
-	if ctx.ReadJSON(&in) != nil || strings.TrimSpace(in.Name) == "" || !contains([]string{"ssh", "k8s", "rdp", "mongodb", "redis", "mysql", "postgres", "sqlite", "https"}, in.Type) {
+	if ctx.ReadJSON(&in) != nil || strings.TrimSpace(in.Name) == "" || !contains([]string{"ssh", "k8s", "rdp", "mongodb", "redis", "mysql", "postgres", "sqlite", "https", "onepanel"}, in.Type) {
 		fail(ctx, 400, "valid connection name and type required")
 		return
 	}
