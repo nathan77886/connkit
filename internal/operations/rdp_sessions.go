@@ -160,7 +160,7 @@ func (s *Service) startRDP(parent context.Context, c store.Connection, cfg Setti
 		w.close()
 		return nil, e
 	}
-	if string(b) != mode && !(auth && string(b) == "authenticated") {
+	if string(b) != mode && (!auth || string(b) != "authenticated") {
 		w.close()
 		return nil, errors.New("RDP backend did not confirm requested session stage")
 	}
