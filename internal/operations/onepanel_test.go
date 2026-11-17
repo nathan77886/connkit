@@ -108,7 +108,7 @@ func TestOnePanelSessionAuthenticationAndTerminal(t *testing.T) {
 	}))
 	server := httptest.NewTLSServer(mux)
 	defer server.Close()
-	cfg := Settings{BaseURL: server.URL, Entrance: "private-entry", Username: "panel-user", Password: "fixture-panel-password", CA: certificatePEM(server.Certificate().Raw), AllowExec: true}
+	cfg := Settings{BaseURL: server.URL, Entrance: "private-entry", Username: "panel-user", Password: "fixture-panel-password", CA: certificatePEM(server.Certificate().Raw)}
 	target.Type = "onepanel"
 	save := func() {
 		t.Helper()
@@ -136,16 +136,10 @@ func TestOnePanelSessionAuthenticationAndTerminal(t *testing.T) {
 	if err != nil || out.(map[string]any)["exit_code"] != 7 || !strings.Contains(out.(map[string]any)["output"].(string), "actual output") || commands.Load() != 1 {
 		t.Fatalf("exec %v %v, commands %d", out, err, commands.Load())
 	}
-	before := logins.Load()
-	for _, in := range []Input{{Method: "POST", Path: "containers/operate"}, {Path: "//attacker.example/"}, {Path: "../core/auth/login"}, {Path: "containers/%2e%2e/exec"}, {Path: "core/auth/logout"}, {Path: "containers/exec"}, {Method: "GET", Path: "containers/info"}} {
+	for _, in := range []Input{{Path: "//attacker.example/"}, {Path: "../core/auth/login"}, {Path: "containers/%2e%2e/exec"}, {Path: "core/auth/logout"}, {Path: "containers/exec"}} {
 		if _, err = call("onepanel_request", in); err == nil {
 			t.Fatalf("unsafe API allowed: %+v", in)
 		}
-	}
-	cfg.AllowExec = false
-	save()
-	if _, err = call("onepanel_exec", Input{Container: "fixture-container", Command: "touch /should-not-run"}); err == nil || logins.Load() != before {
-		t.Fatal("execution gate must reject before any upstream login")
 	}
 	cfg.CA = ""
 	save()
@@ -173,7 +167,7 @@ func TestOnePanelAPIKeyPolicyAndNoRetries(t *testing.T) {
 	}))
 	defer server.Close()
 	target.Type = "onepanel"
-	cfg := Settings{BaseURL: server.URL, APIKey: "fixture-api-key", AllowWrite: true, AllowExec: true}
+	cfg := Settings{BaseURL: server.URL, APIKey: "fixture-api-key"}
 	save := func() {
 		raw, _ := json.Marshal(cfg)
 		target.Secret, _ = s.Store.Encrypt(raw)
@@ -218,7 +212,7 @@ func TestOnePanelUnknownCommandOutcome(t *testing.T) {
 	}))
 	defer server.Close()
 	target.Type = "onepanel"
-	raw, _ := json.Marshal(Settings{BaseURL: server.URL, AllowHTTP: true, SessionCookie: "psession=fixture-session", AllowExec: true})
+	raw, _ := json.Marshal(Settings{BaseURL: server.URL, AllowHTTP: true, SessionCookie: "psession=fixture-session"})
 	target.Secret, _ = s.Store.Encrypt(raw)
 	s.Store.DB.Save(&target)
 	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)

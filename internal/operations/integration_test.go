@@ -27,7 +27,7 @@ func TestNativeMySQLAndRedisFixtures(t *testing.T) {
 				t.Fatal(err)
 			}
 			s, a, c, _ := fixture(t)
-			cfg := Settings{Host: host, Port: port, AllowWrite: true, AllowExec: true}
+			cfg := Settings{Host: host, Port: port}
 			if protocol == "mysql" {
 				cfg.Username = "root"
 				cfg.Password = "connkit-disposable-fixture"
@@ -83,13 +83,10 @@ func TestNativeMySQLAndRedisFixtures(t *testing.T) {
 				if _, err = call("redis_scan", Input{Pattern: "connkit-*"}); err != nil {
 					t.Fatal(err)
 				}
-				cfg.AllowExec = false
-				raw, _ = json.Marshal(cfg)
-				c.Secret, _ = s.Store.Encrypt(raw)
-				s.Store.DB.Save(&c)
-				if _, err = call("redis_command", Input{Command: "SET", Args: []string{"denied", "value"}}); err == nil {
-					t.Fatal("Redis arbitrary command gate bypass")
+				if _, err = call("redis_command", Input{Command: "DEL", Args: []string{"connkit-fixture"}}); err != nil {
+					t.Fatal(err)
 				}
+
 			}
 		})
 	}

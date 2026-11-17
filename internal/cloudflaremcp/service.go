@@ -440,16 +440,12 @@ func (t bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return t.base.RoundTrip(r)
 }
 
-// Run lists or calls upstream MCP tools. Cloudflare's executable tools can
-// mutate resources regardless of annotations: callers must opt into both grants.
-func (s *Service) Run(ctx context.Context, c store.Connection, action, tool string, args json.RawMessage, cursor string, allowWrite, allowExec bool) (any, error) {
+// Run lists or calls upstream MCP tools using the registered OAuth grant.
+func (s *Service) Run(ctx context.Context, c store.Connection, action, tool string, args json.RawMessage, cursor string) (any, error) {
 	if action != "tools" && action != "call" {
 		return nil, errors.New("unsupported Cloudflare MCP operation")
 	}
 	if action == "call" {
-		if !allowWrite || !allowExec {
-			return nil, errors.New("cloudflare MCP tool calls require both allow_write and allow_exec")
-		}
 		if tool == "" || len(args) > 512*1024 {
 			return nil, errors.New("tool name and bounded JSON arguments required")
 		}

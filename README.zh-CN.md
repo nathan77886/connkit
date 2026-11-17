@@ -36,7 +36,7 @@ ConnKit 通过一个管理控制台集中管理系统连接、凭据和出站代
 
 ### 连接类型
 
-- **SSH：** 文件先上传至 S3 兼容存储，再由目标端下载并校验 SHA-256；已支持显式开启后的远程命令和有大小限制的 SFTP 读取。
+- **SSH：** 文件先上传至 S3 兼容存储，再由目标端下载并校验 SHA-256；已支持远程命令和有大小限制的 SFTP 读取。
 - **Kubernetes：** 资源查看、有限日志读取、服务端 apply 和删除；exec/流式功能尚未实现。
 - **RDP：** 远程桌面会话、截图和键鼠输入。
 - **MongoDB：** 集合发现、文档查询、聚合及授权写入。
@@ -104,4 +104,4 @@ GitHub Actions 配置为构建两个镜像：`connkit-mcp` 运行 MCP；`connkit
 
 ## 1Panel
 
-新增 `onepanel` 连接类型，支持 1Panel v2 面板账号密码、API Key 或已有会话认证，提供 API 读取、容器日志和显式授权的容器终端命令。HTTP 面板需设置 `allow_http:true`；写入和命令默认关闭。详见 [协议文档](docs/protocols.md#1panel-v2)。
+新增 `onepanel` 连接类型，支持 1Panel v2 面板账号密码、API Key 或已有会话认证，提供 API 读取、容器日志和显式授权的容器终端命令。HTTP 面板需设置 `allow_http:true`；操作按任务指令和面板账号权限执行。详见 [协议文档](docs/protocols.md#1panel-v2)。

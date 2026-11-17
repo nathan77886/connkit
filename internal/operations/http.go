@@ -96,11 +96,7 @@ func (s *Service) http(ctx context.Context, c store.Connection, cfg Settings, to
 		in.Path = p.String()
 	}
 	switch method {
-	case http.MethodGet, http.MethodHead, http.MethodOptions:
-	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
-		if !cfg.AllowWrite {
-			return nil, errors.New("allow_write is required")
-		}
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 	default:
 		return nil, errors.New("unsupported HTTP method")
 	}
@@ -112,10 +108,10 @@ func (s *Service) http(ctx context.Context, c store.Connection, cfg Settings, to
 		return nil, err
 	}
 	if cfg.AliyunRPC != nil {
-		if c.Type != "https" || method != http.MethodGet || in.Body != "" {
-			return nil, errors.New("aliyun RPC only supports allowlisted read-only GET actions")
+		if c.Type != "https" || (method != http.MethodGet && method != http.MethodPost) || in.Body != "" {
+			return nil, errors.New("aliyun RPC requires GET or POST with parameters in the URL query")
 		}
-		if err := signAliyunRPC(u, *cfg.AliyunRPC); err != nil {
+		if err := signAliyunRPC(u, *cfg.AliyunRPC, method); err != nil {
 			return nil, err
 		}
 	}

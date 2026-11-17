@@ -36,7 +36,7 @@ The console supports Simplified Chinese and English, follows the browser languag
 
 ### Connection types
 
-- **SSH:** File delivery through S3-compatible storage, with target-side download and SHA-256 verification. Remote commands (explicit opt-in) and bounded SFTP reads are available.
+- **SSH:** File delivery through S3-compatible storage, with target-side download and SHA-256 verification. Remote commands and bounded SFTP reads are available.
 - **Kubernetes:** Resource inspection, bounded logs, server-side apply and delete. Exec/streaming operations remain planned.
 - **RDP:** Remote desktop sessions, screenshots, and keyboard/mouse input.
 - **MongoDB:** Collection discovery, document queries, aggregation, and authorized writes.
@@ -78,7 +78,7 @@ See the [implementation design](docs/architecture.md) for details.
 
 ## 1Panel
 
-Manage 1Panel v2 through encrypted panel credentials or an API key: bounded API reads, container logs and opt-in container terminal commands. See [protocol settings](docs/protocols.md#1panel-v2) for HTTP opt-in, authentication and permissions.
+Manage 1Panel v2 through encrypted panel credentials or an API key: bounded API requests, container logs and container terminal commands. See [protocol settings](docs/protocols.md#1panel-v2) for HTTP opt-in, authentication and permissions.
 
 ## Access and credentials
 

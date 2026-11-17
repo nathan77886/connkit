@@ -127,8 +127,8 @@ func TestRDPDesktopAuthorizationAndLimits(t *testing.T) {
 	}
 	x := &desktopSession{id: "private", actor: a, connection: c, last: time.Now(), created: time.Now(), width: 800, height: 600, routeRevision: s.Desktop.routeRevision(t.Context(), c)}
 	s.Desktop.sessions[x.id] = x
-	if _, e := s.Run(t.Context(), a, "rdp_input", Input{ConnectionID: c.ID, SessionID: x.id, Action: "mouse_move"}); e == nil || !strings.Contains(e.Error(), "allow_rdp_input") {
-		t.Fatalf("input opt-in bypass: %v", e)
+	if _, e := s.Run(t.Context(), a, "rdp_input", Input{ConnectionID: c.ID, SessionID: x.id, Action: "mouse_move", X: 800}); e == nil || !strings.Contains(e.Error(), "out of bounds") {
+		t.Fatalf("input bounds bypass: %v", e)
 	}
 	var key store.Key
 	s.Store.DB.First(&key)

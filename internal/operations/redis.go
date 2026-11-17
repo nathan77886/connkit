@@ -88,8 +88,8 @@ func (s *Service) redis(ctx context.Context, c store.Connection, cfg Settings, t
 		}
 		return redisDo(ctx, client, command, in.Args)
 	case "redis_command":
-		if !cfg.AllowExec || strings.TrimSpace(in.Command) == "" {
-			return nil, errors.New("allow_exec is required for arbitrary Redis commands")
+		if strings.TrimSpace(in.Command) == "" {
+			return nil, errors.New("a Redis command is required")
 		}
 		return redisDo(ctx, client, in.Command, in.Args)
 	default:

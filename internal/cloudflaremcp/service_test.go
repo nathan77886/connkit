@@ -41,7 +41,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	secret, err := db.Encrypt([]byte(`{"allow_write":true,"allow_exec":true}`))
+	secret, err := db.Encrypt([]byte(`{"allow_write":false,"allow_exec":false}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,26 +203,18 @@ func TestOAuthLifecycleAndMCP(t *testing.T) {
 			t.Fatal("unencrypted credentials")
 		}
 	}
-	out, err := f.s.Run(t.Context(), f.c, "tools", "", nil, "", false, false)
+	out, err := f.s.Run(t.Context(), f.c, "tools", "", nil, "")
 	if err != nil || len(out.(*sdk.ListToolsResult).Tools) != 1 {
 		t.Fatalf("tools/list: %v", err)
 	}
-	for _, grants := range [][2]bool{{false, false}, {true, false}, {false, true}} {
-		if _, err = f.s.Run(t.Context(), f.c, "call", "execute", json.RawMessage(`{"code":"ok"}`), "", grants[0], grants[1]); err == nil {
-			t.Fatal("missing grant accepted")
-		}
-	}
-	if f.calls.Load() != 0 {
-		t.Fatal("denied call executed")
-	}
 	for _, args := range []string{`[]`, `null`, `1`, `"text"`, `{broken`} {
-		if _, err = f.s.Run(t.Context(), f.c, "call", "execute", json.RawMessage(args), "", true, true); err == nil {
+		if _, err = f.s.Run(t.Context(), f.c, "call", "execute", json.RawMessage(args), ""); err == nil {
 			t.Fatal("invalid arguments accepted")
 		}
 	}
 	for _, code := range []string{"ok", "fail"} {
 		args, _ := json.Marshal(map[string]string{"code": code})
-		out, err = f.s.Run(t.Context(), f.c, "call", "execute", args, "", true, true)
+		out, err = f.s.Run(t.Context(), f.c, "call", "execute", args, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -236,7 +228,7 @@ func TestOAuthLifecycleAndMCP(t *testing.T) {
 	if err = f.s.Disconnect(t.Context(), f.c.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = f.s.Run(t.Context(), f.c, "tools", "", nil, "", false, false); err == nil {
+	if _, err = f.s.Run(t.Context(), f.c, "tools", "", nil, ""); err == nil {
 		t.Fatal("disconnected credentials accepted")
 	}
 }

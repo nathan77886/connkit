@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/url"
-	"slices"
 	"strings"
 	"time"
 )
@@ -22,13 +21,7 @@ type AliyunRPCSettings struct {
 	SecurityToken   string `json:"security_token,omitempty"`
 }
 
-var aliyunReadActions = map[string][]string{
-	"ecs": {"DescribeRegions", "DescribeInstances", "DescribeInstanceAttribute", "DescribeCloudAssistantStatus", "DescribeCloudAssistantSettings", "DescribeInvocations", "DescribeInvocationResults", "DescribeSecurityGroups", "DescribeSecurityGroupAttribute", "DescribeNetworkInterfaces", "DescribeDisks", "DescribeInstanceHistoryEvents", "DescribeInstanceMaintenanceAttributes"},
-	"vpc": {"DescribeRegions", "DescribeVpcs", "DescribeVpcAttribute", "DescribeVSwitches", "DescribeRouteTables", "DescribeRouteEntryList", "DescribeNatGateways", "DescribeSnatTableEntries", "DescribeNetworkAcls"},
-	"hbr": {"DescribeVaults", "DescribeClients", "DescribeClientsV2", "DescribeBackupJobs", "DescribeBackupJobs2", "DescribeBackupPlans", "DescribeBackupPlans2", "DescribeSnapshots"},
-}
-
-func signAliyunRPC(u *url.URL, cfg AliyunRPCSettings) error {
+func signAliyunRPC(u *url.URL, cfg AliyunRPCSettings, method string) error {
 	versions := map[string]string{"ecs": "2014-05-26", "vpc": "2016-04-28", "hbr": "2017-09-08"}
 	version, ok := versions[cfg.Service]
 	if !ok || cfg.RegionID == "" || strings.ContainsAny(cfg.RegionID, "/.:?#\\") || cfg.AccessKeyID == "" || cfg.AccessKeySecret == "" {
@@ -47,8 +40,8 @@ func signAliyunRPC(u *url.URL, cfg AliyunRPCSettings) error {
 			return errors.New("duplicate Aliyun RPC parameter")
 		}
 	}
-	if !slices.Contains(aliyunReadActions[cfg.Service], q.Get("Action")) {
-		return errors.New("aliyun RPC action is not in the read-only allowlist")
+	if strings.TrimSpace(q.Get("Action")) == "" {
+		return errors.New("aliyun RPC action is required")
 	}
 	for _, key := range []string{"AccessKeyId", "Signature", "SignatureMethod", "SignatureVersion", "SignatureNonce", "SignatureType", "SecurityToken", "BearerToken", "Timestamp", "Format", "Version", "RegionId"} {
 		if q.Has(key) {
@@ -70,15 +63,15 @@ func signAliyunRPC(u *url.URL, cfg AliyunRPCSettings) error {
 	if cfg.SecurityToken != "" {
 		q.Set("SecurityToken", cfg.SecurityToken)
 	}
-	q.Set("Signature", aliyunRPCSignature(q, cfg.AccessKeySecret))
+	q.Set("Signature", aliyunRPCSignature(q, cfg.AccessKeySecret, method))
 	u.RawQuery = q.Encode()
 	return nil
 }
 
 // Canonicalization follows Alibaba Cloud's RPC v1 SDK; spaces use %20, not +.
-func aliyunRPCSignature(q url.Values, secret string) string {
+func aliyunRPCSignature(q url.Values, secret, method string) string {
 	canonical := strings.ReplaceAll(q.Encode(), "+", "%20")
 	mac := hmac.New(sha1.New, []byte(secret+"&"))
-	_, _ = mac.Write([]byte("GET&%2F&" + url.QueryEscape(canonical)))
+	_, _ = mac.Write([]byte(method + "&%2F&" + url.QueryEscape(canonical)))
 	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }

@@ -59,7 +59,7 @@ type Input struct {
 	Pattern       string         `json:"pattern,omitempty"`
 }
 
-// Settings are encrypted per connection. Writes/arbitrary commands require opt-in.
+// Settings are encrypted per connection. Target credentials determine upstream permissions.
 type Settings struct {
 	AliyunRPC         *AliyunRPCSettings `json:"aliyun_rpc,omitempty"`
 	Entrance          string             `json:"entrance"`
@@ -68,7 +68,6 @@ type Settings struct {
 	AllowHTTP         bool               `json:"allow_http"`
 	CertificateSHA256 string             `json:"certificate_sha256"`
 	Domain            string             `json:"domain"`
-	AllowRDPInput     bool               `json:"allow_rdp_input"`
 	Host              string             `json:"host"`
 	Port              int                `json:"port"`
 	Username          string             `json:"username"`
@@ -84,8 +83,6 @@ type Settings struct {
 	Token             string             `json:"token"`
 	Headers           map[string]string  `json:"headers"`
 	URI               string             `json:"uri"`
-	AllowWrite        bool               `json:"allow_write"`
-	AllowExec         bool               `json:"allow_exec"`
 	TimeoutSeconds    int                `json:"timeout_seconds"`
 }
 
@@ -149,7 +146,7 @@ func (s *Service) Run(ctx context.Context, a Actor, tool string, in Input) (out 
 		if in.ToolArguments == nil {
 			args = []byte(`{}`)
 		}
-		out, err = (&cloudflaremcp.Service{Store: s.Store}).Run(ctx, c, action, in.ToolName, args, in.PageCursor, cfg.AllowWrite, cfg.AllowExec)
+		out, err = (&cloudflaremcp.Service{Store: s.Store}).Run(ctx, c, action, in.ToolName, args, in.PageCursor)
 	case c.Type == "onepanel":
 		out, err = s.onepanel(ctx, c, cfg, tool, in)
 	case c.Type == "rdp":
@@ -196,7 +193,7 @@ func address(c Settings, port int) (string, error) {
 func (s *Service) test(ctx context.Context, c store.Connection, cfg Settings) (any, error) {
 	switch c.Type {
 	case "cloudflare_mcp":
-		return (&cloudflaremcp.Service{Store: s.Store}).Run(ctx, c, "tools", "", nil, "", false, false)
+		return (&cloudflaremcp.Service{Store: s.Store}).Run(ctx, c, "tools", "", nil, "")
 	case "sqlite", "mysql", "postgres":
 		db, err := s.openSQL(ctx, c, cfg, false)
 		if err != nil {

@@ -65,15 +65,6 @@ func panelPath(relative string) (*url.URL, error) {
 	return u, nil
 }
 
-func panelRead(method, path string) bool {
-	// 1Panel uses POST even for these read operations. Do not infer safety from GET.
-	switch method + " " + path {
-	case "POST containers/search", "POST containers/info", "POST containers/files/content", "GET containers/search/log", "GET dashboard/base/os", "GET dashboard/base/base", "POST dashboard/current":
-		return true
-	}
-	return false
-}
-
 func (s *Service) newPanelClient(c store.Connection, cfg Settings) (*panelClient, func(), error) {
 	u, err := panelBase(cfg)
 	if err != nil {
@@ -263,8 +254,8 @@ func (s *Service) onepanel(ctx context.Context, c store.Connection, cfg Settings
 		q := url.Values{"container": {in.Container}, "tail": {strconv.Itoa(in.Limit)}, "since": {"15m"}, "follow": {"false"}, "timestamp": {"true"}, "operateNode": {"local"}}
 		method, path, body = "GET", "containers/search/log?"+q.Encode(), nil
 	case "onepanel_exec":
-		if !cfg.AllowExec || strings.TrimSpace(in.Command) == "" || in.Container == "" || len(in.Command) > 32768 || strings.ContainsAny(in.Command, "\x00") {
-			return nil, errors.New("allow_exec, container ID and a command of at most 32768 bytes are required")
+		if strings.TrimSpace(in.Command) == "" || in.Container == "" || len(in.Command) > 32768 || strings.ContainsAny(in.Command, "\x00") {
+			return nil, errors.New("container ID and a command of at most 32768 bytes are required")
 		}
 	case "onepanel_request":
 		if method == "" {
@@ -282,9 +273,6 @@ func (s *Service) onepanel(ctx context.Context, c store.Connection, cfg Settings
 		lower := strings.ToLower(u.Path)
 		if strings.Contains(lower, "auth") || strings.Contains(lower, "terminal") || strings.Contains(lower, "exec") {
 			return nil, errors.New("1Panel authentication and terminal endpoints are reserved")
-		}
-		if !panelRead(method, u.Path) && (!cfg.AllowWrite || !cfg.AllowExec) {
-			return nil, errors.New("unclassified 1Panel API operations require both allow_write and allow_exec")
 		}
 		if len(body) > MaxBytes/2 || (len(body) > 0 && !json.Valid(body)) {
 			return nil, errors.New("1Panel body must be bounded valid JSON")

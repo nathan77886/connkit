@@ -15,7 +15,7 @@ export const zhCN = {
  "OAuth state mismatch. Start authorization again.": "授权状态不匹配，请重新发起授权。",
  "Cloudflare authorization was denied. Start authorization again.": "Cloudflare 授权被拒绝，请重新发起授权。",
  "Completing Cloudflare authorization...": "正在完成 Cloudflare 授权……",
- "Save this connection, then click Authorize. No API token is needed. MCP tool calls require allow_write and allow_exec in settings.": "保存连接后点击“授权”，无需填写 API Token。调用 MCP 工具需要在参数中同时开启 allow_write 和 allow_exec。",
+ "Save this connection, then click Authorize. No API token is needed. Operations use the permissions granted on Cloudflare.": "保存连接后点击“授权”，无需填写 API Token。操作使用你在 Cloudflare 授予的权限。",
 
  'Language': '语言',
  'Connections': '系统连接', 'Proxies': '代理器', 'API keys': 'API 密钥',
@@ -32,7 +32,7 @@ export const zhCN = {
  'Revoke': '撤销', 'Delete': '删除', 'Create': '创建',
  'Create {resource}': '创建{resource}', 'Edit {resource}': '编辑{resource}',
  'connection': '系统连接', 'proxy': '代理器', 'API key': 'API 密钥',
- 'Configure protocol settings and routes, then test a connection. Writes and arbitrary commands require explicit opt-in. See docs/protocols.md for settings and tools.': '配置协议参数和代理路径后，可测试连接。写入和任意命令需要显式开启，参数与工具说明见 docs/protocols.md。',
+ 'Configure protocol settings and routes, then test a connection. Operations follow your task instructions and target account permissions. See docs/protocols.md for settings and tools.': '配置协议参数和代理路径后，可测试连接。操作按你的任务指令和目标账号权限执行，参数与工具说明见 docs/protocols.md。',
  'Allowed connections': '允许访问的连接',
  'An empty selection grants access to no connections.': '不选择任何连接时，此密钥无权访问任何连接。',
  'Expiry (optional)': '有效期（可选）',

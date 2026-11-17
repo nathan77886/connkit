@@ -104,20 +104,15 @@ func (s *Service) mongo(ctx context.Context, c store.Connection, cfg Settings, t
 		}
 		return map[string]any{"count": n}, nil
 	case "mongo_aggregate":
-		var pipeline mongo.Pipeline
-		if bson.UnmarshalExtJSON([]byte(in.Pipeline), false, &pipeline) != nil {
-			return nil, errors.New("invalid Extended JSON pipeline")
+		pipeline, err := aggregatePipeline(in.Pipeline, in.Limit)
+		if err != nil {
+			return nil, err
 		}
-		// Recursively reject writing stages, including stages inside nested pipelines.
-		if writesPipeline(pipeline) {
-			return nil, errors.New("aggregation write stages are unavailable")
-		}
-		pipeline = append(pipeline, bson.D{{Key: "$limit", Value: in.Limit}})
 		cursor, err = collection.Aggregate(ctx, pipeline)
-	case "mongo_insert", "mongo_update", "mongo_delete":
-		if !cfg.AllowWrite {
-			return nil, errors.New("allow_write is required")
+		if err != nil {
+			return nil, errors.New("MongoDB aggregation failed; outcome may be unknown, do not automatically retry")
 		}
+	case "mongo_insert", "mongo_update", "mongo_delete":
 		document := bson.D{}
 		if tool != "mongo_delete" && bson.UnmarshalExtJSON([]byte(in.Document), false, &document) != nil {
 			return nil, errors.New("invalid Extended JSON document")
@@ -161,26 +156,19 @@ func (s *Service) mongo(ctx context.Context, c store.Connection, cfg Settings, t
 	}
 	return map[string]any{"documents": docs, "format": "canonical_extended_json", "truncated": truncated}, nil
 }
-func writesPipeline(value any) bool {
-	switch v := value.(type) {
-	case mongo.Pipeline:
-		for _, x := range v {
-			if writesPipeline(x) {
-				return true
-			}
-		}
-	case bson.D:
-		for _, e := range v {
-			if e.Key == "$out" || e.Key == "$merge" || writesPipeline(e.Value) {
-				return true
-			}
-		}
-	case bson.A:
-		for _, x := range v {
-			if writesPipeline(x) {
-				return true
+
+// Output stages must remain last; response limits never truncate documents written by a pipeline.
+func aggregatePipeline(raw string, limit int) (mongo.Pipeline, error) {
+	var pipeline mongo.Pipeline
+	if bson.UnmarshalExtJSON([]byte(raw), false, &pipeline) != nil {
+		return nil, errors.New("invalid Extended JSON pipeline")
+	}
+	if len(pipeline) > 0 {
+		for _, stage := range pipeline[len(pipeline)-1] {
+			if stage.Key == "$out" || stage.Key == "$merge" {
+				return pipeline, nil
 			}
 		}
 	}
-	return false
+	return append(pipeline, bson.D{{Key: "$limit", Value: limit}}), nil
 }

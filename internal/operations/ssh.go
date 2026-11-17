@@ -37,8 +37,8 @@ func (s *Service) ssh(ctx context.Context, c store.Connection, cfg Settings, too
 	if tool != "ssh_exec" && tool != "sftp_read" && tool != "ssh_test" {
 		return nil, errors.New("unsupported SSH operation")
 	}
-	if tool == "ssh_exec" && (!cfg.AllowExec || strings.TrimSpace(in.Command) == "") {
-		return nil, errors.New("allow_exec and a command are required")
+	if tool == "ssh_exec" && strings.TrimSpace(in.Command) == "" {
+		return nil, errors.New("a command is required")
 	}
 	client, err := (&route.Dialer{Store: s.Store}).OpenSSH(ctx, c)
 	if err != nil {

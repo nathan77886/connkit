@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"github.com/nathan77886/connkit/internal/store"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 func fixture(t *testing.T) (*Service, Actor, store.Connection, string) {
@@ -48,7 +46,7 @@ func fixture(t *testing.T) (*Service, Actor, store.Connection, string) {
 	}
 	return &Service{Store: s}, Actor{Token: token}, c, target
 }
-func TestSQLReadOnlyBindingsAndWriteOptIn(t *testing.T) {
+func TestSQLToolSemanticsBindingsAndConnectionAuthorization(t *testing.T) {
 	s, a, c, target := fixture(t)
 	call := func(tool, query string, params ...any) (any, error) {
 		return s.Run(t.Context(), a, tool, Input{ConnectionID: c.ID, Query: query, Params: params, Limit: 1, Table: "sample"})
@@ -71,10 +69,8 @@ func TestSQLReadOnlyBindingsAndWriteOptIn(t *testing.T) {
 			t.Fatalf("read-only bypass: %s", query)
 		}
 	}
-	if _, err = call("db_execute", "INSERT INTO sample(value) VALUES (?)", "second"); err == nil {
-		t.Fatal("write opt-in bypass")
-	}
-	raw, _ := json.Marshal(Settings{Path: target, AllowWrite: true})
+	// Legacy false flags do not restrict an authorized connection.
+	raw, _ := json.Marshal(map[string]any{"path": target, "allow_write": false, "allow_exec": false})
 	secret, _ := s.Store.Encrypt(raw)
 	s.Store.DB.Model(&c).Update("secret", secret)
 	if _, err = call("db_execute", "INSERT INTO sample(value) VALUES (?)", "second"); err != nil {
@@ -161,8 +157,8 @@ func TestHTTPSAuthenticationRedirectAndProxyFailure(t *testing.T) {
 	if err != nil || !strings.Contains(string(mustJSON(t, out)), `"status":302`) || requests.Load() != before+1 {
 		t.Fatalf("redirect: %v %v", out, err)
 	}
-	if _, err = s.Run(t.Context(), a, "https_request", Input{ConnectionID: c.ID, Method: "POST"}); err == nil {
-		t.Fatal("HTTP write not gated")
+	if _, err = s.Run(t.Context(), a, "https_request", Input{ConnectionID: c.ID, Method: "POST"}); err != nil {
+		t.Fatalf("authorized HTTP write blocked: %v", err)
 	}
 	badSecret, _ := s.Store.Encrypt([]byte(`{"host":"127.0.0.1","port":1}`))
 	p := store.Proxy{Name: "bad", Type: "http", Secret: badSecret}
@@ -174,11 +170,19 @@ func TestHTTPSAuthenticationRedirectAndProxyFailure(t *testing.T) {
 		t.Fatal("failed proxy fell back to direct")
 	}
 }
-func TestMongoNestedWriteStages(t *testing.T) {
-	for _, p := range []mongo.Pipeline{{bson.D{{Key: "$out", Value: "target"}}}, {bson.D{{Key: "$facet", Value: bson.D{{Key: "nested", Value: bson.A{bson.D{{Key: "$merge", Value: "target"}}}}}}}}} {
-		if !writesPipeline(p) {
-			t.Fatal("write stage accepted")
+func TestMongoAggregationOutputStages(t *testing.T) {
+	for _, terminal := range []string{"$out", "$merge"} {
+		pipeline, err := aggregatePipeline(`[{"$match":{}},{"`+terminal+`":"target"}]`, 10)
+		if err != nil || len(pipeline) != 2 || pipeline[1][0].Key != terminal {
+			t.Fatalf("output stage changed: %v %v", pipeline, err)
 		}
+	}
+	pipeline, err := aggregatePipeline(`[{"$match":{}}]`, 10)
+	if err != nil || pipeline[len(pipeline)-1][0].Key != "$limit" {
+		t.Fatal("query result limit missing")
+	}
+	if _, err = aggregatePipeline(`{invalid}`, 10); err == nil {
+		t.Fatal("invalid pipeline accepted")
 	}
 }
 func TestTimeoutAndAuthorizationBeforeDecryption(t *testing.T) {

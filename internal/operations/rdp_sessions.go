@@ -344,7 +344,7 @@ func (s *Service) rdp(ctx context.Context, a Actor, c store.Connection, cfg Sett
 			m.mu.Unlock()
 			return nil, e
 		}
-		return map[string]any{"session_id": x.id, "connection_id": c.ID, "user_authenticated": true, "desktop_session": true, "width": in.Width, "height": in.Height, "idle_timeout_seconds": 120, "max_lifetime_seconds": 600, "input_allowed": cfg.AllowRDPInput}, nil
+		return map[string]any{"session_id": x.id, "connection_id": c.ID, "user_authenticated": true, "desktop_session": true, "width": in.Width, "height": in.Height, "idle_timeout_seconds": 120, "max_lifetime_seconds": 600, "input_allowed": true}, nil
 	}
 	m.mu.Lock()
 	x := m.sessions[in.SessionID]
@@ -374,9 +374,6 @@ func (s *Service) rdp(ctx context.Context, a Actor, c store.Connection, cfg Sett
 	case "rdp_screenshot":
 		command = "shot\n"
 	case "rdp_input":
-		if !cfg.AllowRDPInput {
-			return nil, errors.New("RDP input requires allow_rdp_input=true in encrypted connection settings")
-		}
 		switch in.Action {
 		case "mouse_move":
 			if in.X < 0 || in.X >= x.width || in.Y < 0 || in.Y >= x.height {

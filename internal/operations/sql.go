@@ -150,9 +150,6 @@ func (s *Service) sql(ctx context.Context, c store.Connection, cfg Settings, too
 		return nil, errors.New("unsupported SQL operation")
 	}
 	write := tool == "db_execute"
-	if write && !cfg.AllowWrite {
-		return nil, errors.New("allow_write is required")
-	}
 	db, err := s.openSQL(ctx, c, cfg, write)
 	if err != nil {
 		return nil, err
