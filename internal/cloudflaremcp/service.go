@@ -177,7 +177,7 @@ func (s *Service) Begin(ctx context.Context, id uint, owner, redirect string, re
 	var scopes []string
 	if prm != nil {
 		if len(prm.AuthorizationServers) == 0 {
-			return "", errors.New("Cloudflare OAuth issuer missing")
+			return "", errors.New("missing Cloudflare OAuth issuer")
 		}
 		issuer, resource, scopes = prm.AuthorizationServers[0], prm.Resource, prm.ScopesSupported
 	}
@@ -186,10 +186,10 @@ func (s *Service) Begin(ctx context.Context, id uint, owner, redirect string, re
 	}
 	meta, err := auth.GetAuthServerMetadata(ctx, issuer, client)
 	if err != nil || meta == nil {
-		return "", errors.New("Cloudflare OAuth server discovery failed")
+		return "", errors.New("failed to discover Cloudflare OAuth server")
 	}
 	if !slices.Contains(meta.CodeChallengeMethodsSupported, "S256") {
-		return "", errors.New("Cloudflare OAuth PKCE S256 support required")
+		return "", errors.New("PKCE S256 support required from Cloudflare OAuth")
 	}
 	for _, scope := range requested {
 		if !slices.Contains(meta.ScopesSupported, scope) {
@@ -212,10 +212,10 @@ func (s *Service) Begin(ctx context.Context, id uint, owner, redirect string, re
 		Scope: strings.Join(scopes, " "),
 	}, client)
 	if err != nil {
-		return "", errors.New("Cloudflare OAuth client registration failed")
+		return "", errors.New("cloudflare OAuth client registration failed")
 	}
 	if reg.TokenEndpointAuthMethod != "" && reg.TokenEndpointAuthMethod != "none" {
-		return "", errors.New("Cloudflare OAuth public client required")
+		return "", errors.New("cloudflare OAuth public client required")
 	}
 	state, _, err := store.Token("cfo_")
 	if err != nil {
@@ -238,14 +238,14 @@ func resourceMetadata(ctx context.Context, client *http.Client, raw string, reso
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, errors.New("Cloudflare OAuth resource discovery failed")
+		return nil, errors.New("cloudflare OAuth resource discovery failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, errors.New("Cloudflare OAuth resource discovery rejected")
+		return nil, errors.New("cloudflare OAuth resource discovery rejected")
 	}
 	var p oauthex.ProtectedResourceMetadata
 	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&p) != nil || !slices.Contains(resources, p.Resource) {
@@ -301,7 +301,7 @@ func (s *Service) Finish(ctx context.Context, id uint, owner, state, code, issue
 	defer closeClient()
 	token, err := p.Config.Exchange(context.WithValue(ctx, oauth2.HTTPClient, client), code, oauth2.VerifierOption(p.Verifier), oauth2.SetAuthURLParam("resource", p.Resource))
 	if err != nil {
-		return errors.New("Cloudflare OAuth token exchange failed; start authorization again")
+		return errors.New("cloudflare OAuth token exchange failed; start authorization again")
 	}
 	return s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var current store.Connection
@@ -362,22 +362,22 @@ func (s *Service) accessToken(ctx context.Context, c store.Connection) (string, 
 			return locked.Error
 		}
 		if locked.RowsAffected != 1 {
-			return errors.New("Cloudflare login required")
+			return errors.New("cloudflare login required")
 		}
 		var row store.Setting
 		if err := tx.First(&row, "name = ?", name("auth", c.ID)).Error; err != nil {
-			return errors.New("Cloudflare login required")
+			return errors.New("cloudflare login required")
 		}
 		var v credentials
 		if err := s.Store.Decrypt(row.Secret, &v); err != nil {
 			return err
 		}
 		if v.Token == nil {
-			return errors.New("Cloudflare login required")
+			return errors.New("cloudflare login required")
 		}
 		if !v.Token.Valid() {
 			if v.Token.RefreshToken == "" {
-				return errors.New("Cloudflare authorization expired; login again")
+				return errors.New("cloudflare authorization expired; login again")
 			}
 			// Route lookups must share the transaction (SQLite has one connection).
 			txStore := *s.Store
@@ -386,7 +386,7 @@ func (s *Service) accessToken(ctx context.Context, c store.Connection) (string, 
 			defer closeClient()
 			token, err := refreshToken(ctx, client, v)
 			if err != nil {
-				return errors.New("Cloudflare OAuth refresh failed; login again")
+				return errors.New("cloudflare OAuth refresh failed; login again")
 			}
 			v.Token = token
 			if err = s.save(ctx, tx, row.Name, v); err != nil {
@@ -448,7 +448,7 @@ func (s *Service) Run(ctx context.Context, c store.Connection, action, tool stri
 	}
 	if action == "call" {
 		if !allowWrite || !allowExec {
-			return nil, errors.New("Cloudflare MCP tool calls require both allow_write and allow_exec")
+			return nil, errors.New("cloudflare MCP tool calls require both allow_write and allow_exec")
 		}
 		if tool == "" || len(args) > 512*1024 {
 			return nil, errors.New("tool name and bounded JSON arguments required")
@@ -472,19 +472,19 @@ func (s *Service) Run(ctx context.Context, c store.Connection, action, tool stri
 		Endpoint: s.endpointURL(), HTTPClient: client, MaxRetries: -1, DisableStandaloneSSE: true, MaxEventSize: 1 << 20,
 	}, nil)
 	if err != nil {
-		return nil, errors.New("Cloudflare MCP connection failed; check authorization and route")
+		return nil, errors.New("cloudflare MCP connection failed; check authorization and route")
 	}
 	defer session.Close()
 	if action == "tools" {
 		out, err := session.ListTools(ctx, &sdk.ListToolsParams{Cursor: cursor})
 		if err != nil {
-			return nil, errors.New("Cloudflare MCP tools/list failed")
+			return nil, errors.New("cloudflare MCP tools/list failed")
 		}
 		return out, nil
 	}
 	out, err := session.CallTool(ctx, &sdk.CallToolParams{Name: tool, Arguments: args})
 	if err != nil {
-		return nil, errors.New("Cloudflare MCP tool call failed; outcome may be unknown, do not retry automatically")
+		return nil, errors.New("cloudflare MCP tool call failed; outcome may be unknown, do not retry automatically")
 	}
 	return out, nil
 }

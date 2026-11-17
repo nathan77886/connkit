@@ -113,7 +113,7 @@ func (s *Service) http(ctx context.Context, c store.Connection, cfg Settings, to
 	}
 	if cfg.AliyunRPC != nil {
 		if c.Type != "https" || method != http.MethodGet || in.Body != "" {
-			return nil, errors.New("Aliyun RPC only supports allowlisted read-only GET actions")
+			return nil, errors.New("aliyun RPC only supports allowlisted read-only GET actions")
 		}
 		if err := signAliyunRPC(u, *cfg.AliyunRPC); err != nil {
 			return nil, err

@@ -32,11 +32,11 @@ func signAliyunRPC(u *url.URL, cfg AliyunRPCSettings) error {
 	versions := map[string]string{"ecs": "2014-05-26", "vpc": "2016-04-28", "hbr": "2017-09-08"}
 	version, ok := versions[cfg.Service]
 	if !ok || cfg.RegionID == "" || strings.ContainsAny(cfg.RegionID, "/.:?#\\") || cfg.AccessKeyID == "" || cfg.AccessKeySecret == "" {
-		return errors.New("Aliyun RPC requires a supported service, region and access key")
+		return errors.New("aliyun RPC requires a supported service, region and access key")
 	}
 	host := cfg.Service + "." + cfg.RegionID + ".aliyuncs.com"
 	if u.Scheme != "https" || u.Host != host || u.Path != "/" || u.User != nil || u.Fragment != "" {
-		return errors.New("Aliyun RPC requires the configured service regional HTTPS root endpoint")
+		return errors.New("aliyun RPC requires the configured service regional HTTPS root endpoint")
 	}
 	q, err := url.ParseQuery(u.RawQuery)
 	if err != nil {
@@ -48,11 +48,11 @@ func signAliyunRPC(u *url.URL, cfg AliyunRPCSettings) error {
 		}
 	}
 	if !slices.Contains(aliyunReadActions[cfg.Service], q.Get("Action")) {
-		return errors.New("Aliyun RPC action is not in the read-only allowlist")
+		return errors.New("aliyun RPC action is not in the read-only allowlist")
 	}
 	for _, key := range []string{"AccessKeyId", "Signature", "SignatureMethod", "SignatureVersion", "SignatureNonce", "SignatureType", "SecurityToken", "BearerToken", "Timestamp", "Format", "Version", "RegionId"} {
 		if q.Has(key) {
-			return errors.New("Aliyun RPC authentication, version and region parameters are connection-managed")
+			return errors.New("aliyun RPC authentication, version and region parameters are connection-managed")
 		}
 	}
 	q.Set("AccessKeyId", cfg.AccessKeyID)
