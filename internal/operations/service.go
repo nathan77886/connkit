@@ -57,30 +57,32 @@ type Input struct {
 
 // Settings are encrypted per connection. Writes/arbitrary commands require opt-in.
 type Settings struct {
-	Entrance          string            `json:"entrance"`
-	APIKey            string            `json:"api_key"`
-	SessionCookie     string            `json:"session_cookie"`
-	AllowHTTP         bool              `json:"allow_http"`
-	CertificateSHA256 string            `json:"certificate_sha256"`
-	Domain            string            `json:"domain"`
-	AllowRDPInput     bool              `json:"allow_rdp_input"`
-	Host              string            `json:"host"`
-	Port              int               `json:"port"`
-	Username          string            `json:"username"`
-	Password          string            `json:"password"`
-	Database          string            `json:"database"`
-	Path              string            `json:"path"`
-	TLS               bool              `json:"tls"`
-	CA                string            `json:"ca_pem"`
-	ClientCert        string            `json:"client_cert_pem"`
-	ClientKey         string            `json:"client_key_pem"`
-	BaseURL           string            `json:"base_url"`
-	Token             string            `json:"token"`
-	Headers           map[string]string `json:"headers"`
-	URI               string            `json:"uri"`
-	AllowWrite        bool              `json:"allow_write"`
-	AllowExec         bool              `json:"allow_exec"`
-	TimeoutSeconds    int               `json:"timeout_seconds"`
+	AliyunRPC         *AliyunRPCSettings `json:"aliyun_rpc,omitempty"`
+	Entrance          string             `json:"entrance"`
+	APIKey            string             `json:"api_key"`
+	SessionCookie     string             `json:"session_cookie"`
+	AllowHTTP         bool               `json:"allow_http"`
+	CertificateSHA256 string             `json:"certificate_sha256"`
+	Domain            string             `json:"domain"`
+	AllowRDPInput     bool               `json:"allow_rdp_input"`
+	Host              string             `json:"host"`
+	Port              int                `json:"port"`
+	Username          string             `json:"username"`
+	Password          string             `json:"password"`
+	Database          string             `json:"database"`
+	Path              string             `json:"path"`
+	TLS               bool               `json:"tls"`
+	CA                string             `json:"ca_pem"`
+	ClientCert        string             `json:"client_cert_pem"`
+	ClientKey         string             `json:"client_key_pem"`
+	BaseURL           string             `json:"base_url"`
+	TestPath          string             `json:"test_path,omitempty"`
+	Token             string             `json:"token"`
+	Headers           map[string]string  `json:"headers"`
+	URI               string             `json:"uri"`
+	AllowWrite        bool               `json:"allow_write"`
+	AllowExec         bool               `json:"allow_exec"`
+	TimeoutSeconds    int                `json:"timeout_seconds"`
 }
 
 // Service is stateless: every invocation reloads permissions, credentials and routes.
@@ -189,6 +191,16 @@ func (s *Service) test(ctx context.Context, c store.Connection, cfg Settings) (a
 	case "ssh":
 		return s.ssh(ctx, c, cfg, "ssh_test", Input{})
 	case "https":
+		if cfg.AliyunRPC != nil {
+			action := "DescribeRegions"
+			if cfg.AliyunRPC.Service == "hbr" {
+				action = "DescribeVaults"
+			}
+			return s.http(ctx, c, cfg, "https_request", Input{Path: "?Action=" + action})
+		}
+		if cfg.TestPath != "" {
+			return s.http(ctx, c, cfg, "https_request", Input{Method: "GET", Path: cfg.TestPath})
+		}
 		return s.http(ctx, c, cfg, "https_request", Input{Method: "HEAD"})
 	case "k8s":
 		return s.http(ctx, c, cfg, "k8s_get", Input{Path: "/version"})

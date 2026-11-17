@@ -2,12 +2,15 @@ package files
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/nathan77886/connkit/internal/route"
 	"github.com/nathan77886/connkit/internal/store"
+	"golang.org/x/crypto/ssh"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"io"
@@ -16,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 )
 
 var ErrNotConfigured = errors.New("S3 storage is not configured")
@@ -125,7 +129,7 @@ func (s *Service) Prepare(ctx context.Context, actor Actor, in PrepareInput) (Pr
 		return Prepared{}, err
 	}
 	hash, err := hex.DecodeString(in.SHA256)
-	if err != nil || len(hash) != 32 || in.Size <= 0 || in.Name == "" || in.Name == "." || in.Name == ".." || strings.Contains(in.Name, "/") || path.Base(in.Name) != in.Name || strings.ContainsAny(in.Name, "\\\r\n\x00") || len(in.Name) > 255 || !path.IsAbs(in.Destination) || path.Clean(in.Destination) != in.Destination || in.Destination == "/" || len(in.Destination) > 4096 || strings.ContainsAny(in.Destination, "\r\n\x00") {
+	if err != nil || len(hash) != 32 || in.Size <= 0 || in.Name == "" || in.Name == "." || in.Name == ".." || strings.Contains(in.Name, "/") || path.Base(in.Name) != in.Name || strings.ContainsAny(in.Name, "\\\r\n\x00") || len(in.Name) > 255 || !validDestination(in.Destination) || len(in.Destination) > 4096 || strings.ContainsAny(in.Destination, "\r\n\x00") {
 		return Prepared{}, errors.New("valid name, positive size, SHA-256 and absolute destination required")
 	}
 	config, revision, err := s.LoadConfig(ctx)
@@ -245,7 +249,7 @@ func (s *Service) Deliver(ctx context.Context, actor Actor, id string) (store.Fi
 	}
 	file.Status = status
 	if err != nil {
-		return file, errors.New("target download failed or was interrupted; target outcome is unknown")
+		return file, fmt.Errorf("target download failed or was interrupted; target outcome is unknown: %w", err)
 	}
 	// Storage cleanup is explicit so that a storage outage cannot disguise a successful delivery.
 	return file, nil
@@ -300,7 +304,19 @@ func deliverSSH(ctx context.Context, s *store.Store, target store.Connection, fi
 	session.Stdin = strings.NewReader(script)
 	session.Stdout = io.Discard
 	session.Stderr = io.Discard
-	if err = session.Run("sh -s"); err != nil {
+	command := "sh -s"
+	if windowsDestination(file.Destination) {
+		command, err = windowsDownloadCommand(file, signed)
+		if err != nil {
+			return err
+		}
+		session.Stdin = nil
+	}
+	if err = session.Run(command); err != nil {
+		var exitErr *ssh.ExitError
+		if errors.As(err, &exitErr) {
+			return fmt.Errorf("remote download failed with exit code %d", exitErr.ExitStatus())
+		}
 		return errors.New("remote download failed")
 	}
 	return nil
@@ -338,4 +354,49 @@ func (s *Service) List(ctx context.Context, actor Actor) ([]store.File, error) {
 	out := []store.File{}
 	err := s.Store.DB.WithContext(ctx).Where("owner = ?", actor.owner()).Order("created_at DESC").Limit(100).Find(&out).Error
 	return out, err
+}
+
+// Windows destinations use an explicit drive and forward slashes; UNC/device paths are rejected.
+func windowsDestination(value string) bool {
+	return len(value) > 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) && value[1:3] == ":/"
+}
+func validDestination(value string) bool {
+	if strings.Contains(value, "\\") {
+		return false
+	}
+	if windowsDestination(value) {
+		return path.Clean(value) == value && !strings.Contains(value[2:], ":")
+	}
+	return path.IsAbs(value) && path.Clean(value) == value && value != "/"
+}
+func psQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
+func windowsDownloadCommand(file store.File, signed string) (string, error) {
+	u, err := url.Parse(signed)
+	if err != nil || u.Hostname() == "" || (u.Scheme != "https" && u.Scheme != "http") || !windowsDestination(file.Destination) || !validDestination(file.Destination) {
+		return "", errors.New("invalid windows destination or storage URL")
+	}
+	script := fmt.Sprintf(`$ErrorActionPreference='Stop'
+$dest=%s
+$dir=[IO.Path]::GetDirectoryName($dest)
+$tmp=Join-Path $dir ('.connkit-'+[Guid]::NewGuid().ToString('N'))
+$phase=1
+try {
+ if([IO.File]::Exists($dest) -or [IO.Directory]::Exists($dest)){throw 'destination already exists'}
+ [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
+ $phase=2
+ Invoke-WebRequest -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 240 -Uri %s -OutFile $tmp
+ $phase=3
+ if((Get-Item -LiteralPath $tmp).Length -ne %d){throw 'size mismatch'}
+ $phase=4
+ if((Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash -ine %s){throw 'sha256 mismatch'}
+ $phase=5
+ [IO.File]::Move($tmp,$dest)
+} catch { exit (20+$phase) } finally { if([IO.File]::Exists($tmp)){[IO.File]::Delete($tmp)} }
+exit 0`, psQuote(file.Destination), psQuote(signed), file.Size, psQuote(file.SHA256))
+	units := utf16.Encode([]rune(script))
+	raw := make([]byte, len(units)*2)
+	for i, v := range units {
+		binary.LittleEndian.PutUint16(raw[i*2:], v)
+	}
+	return "powershell.exe -NoProfile -NonInteractive -EncodedCommand " + base64.StdEncoding.EncodeToString(raw), nil
 }
