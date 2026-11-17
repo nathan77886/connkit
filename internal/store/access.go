@@ -11,6 +11,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// CallRetention is the maximum age of retained call metadata.
+const CallRetention = 7 * 24 * time.Hour
+
 // Call records metadata only; never arguments, results or upstream error text.
 type Call struct {
 	ID           uint      `json:"id"`
@@ -20,6 +23,12 @@ type Call struct {
 	Status       string    `json:"status"`
 	DurationMS   int64     `json:"duration_ms"`
 	CreatedAt    time.Time `json:"created_at" gorm:"index"`
+}
+
+// DeleteExpiredCalls removes call metadata older than the retention window.
+func (s *Store) DeleteExpiredCalls(ctx context.Context, now time.Time) (int64, error) {
+	result := s.DB.WithContext(ctx).Where("created_at < ?", now.Add(-CallRetention)).Delete(&Call{})
+	return result.RowsAffected, result.Error
 }
 
 // AccessPolicy supplements process-level restrictions; both must allow a request.

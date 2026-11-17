@@ -225,7 +225,7 @@ The Admin UI provides connection tests, editable API key grants/expiry/enabled s
 
 `connection_test` is also available through MCP. It performs database/Redis/MongoDB ping, SSH authentication, HTTPS HEAD or Kubernetes `/version`. Its response shows what was actually checked. Real queries, commands and application behavior require separate acceptance.
 
-Every MCP tool call persists actor/key ID, connection ID (where supplied/resolvable), tool name, duration and status. Arguments, credentials, upstream error text and result bodies are excluded. Calls are recorded before execution; a crash can leave `running`. A canceled call is marked `unknown`; an error response can still follow a completed remote mutation. Inspect target state before retrying. Calls are listed in descending ID order, 100 at a time, with `before` pagination. Retention/automatic deletion is not implemented.
+Every MCP tool call persists actor/key ID, connection ID (where supplied/resolvable), tool name, duration and status. Arguments, credentials, upstream error text and result bodies are excluded. Calls are recorded before execution; a crash can leave `running`. A canceled call is marked `unknown`; an error response can still follow a completed remote mutation. Inspect target state before retrying. Calls are listed in descending ID order, 100 at a time, with `before` pagination. The Admin process deletes call records older than seven days at local midnight each day.
 
 ## Remaining work and verification boundary
 

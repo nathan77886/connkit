@@ -84,3 +84,37 @@ func TestSharedStoreAuthorizationAndEncryption(t *testing.T) {
 		t.Fatal("revoked key accepted")
 	}
 }
+
+func TestDeleteExpiredCalls(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.db")
+	master := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	s, err := Open(path, master, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	now := time.Date(2026, time.November, 17, 12, 0, 0, 0, time.UTC)
+	rows := []Call{
+		{Actor: "key:1", Tool: "old", Status: "success", CreatedAt: now.Add(-CallRetention - time.Nanosecond)},
+		{Actor: "key:1", Tool: "boundary", Status: "success", CreatedAt: now.Add(-CallRetention)},
+		{Actor: "key:1", Tool: "new", Status: "success", CreatedAt: now.Add(-time.Hour)},
+	}
+	if err := s.DB.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := s.DeleteExpiredCalls(context.Background(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted %d calls, want 1", deleted)
+	}
+	var remaining []Call
+	if err := s.DB.Order("created_at").Find(&remaining).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 2 || remaining[0].Tool != "boundary" || remaining[1].Tool != "new" {
+		t.Fatalf("remaining calls: %+v", remaining)
+	}
+}
