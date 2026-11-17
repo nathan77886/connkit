@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/kataras/iris/v12"
+	"github.com/nathan77886/connkit/internal/cloudflaremcp"
 	"github.com/nathan77886/connkit/internal/files"
 	"github.com/nathan77886/connkit/internal/store"
 	"golang.org/x/crypto/bcrypt"
@@ -183,7 +184,7 @@ func (a *API) SaveConnection(ctx iris.Context) {
 		AllowAnonymous bool            `json:"allow_anonymous"`
 		Settings       json.RawMessage `json:"settings"`
 	}
-	if ctx.ReadJSON(&in) != nil || strings.TrimSpace(in.Name) == "" || !contains([]string{"ssh", "k8s", "rdp", "mongodb", "redis", "mysql", "postgres", "sqlite", "https", "onepanel"}, in.Type) {
+	if ctx.ReadJSON(&in) != nil || strings.TrimSpace(in.Name) == "" || !contains([]string{"ssh", "k8s", "rdp", "mongodb", "redis", "mysql", "postgres", "sqlite", "https", "onepanel", "cloudflare_mcp"}, in.Type) {
 		fail(ctx, 400, "valid connection name and type required")
 		return
 	}
@@ -191,6 +192,14 @@ func (a *API) SaveConnection(ctx iris.Context) {
 	id := ctx.Params().GetUintDefault("id", 0)
 	if id != 0 && a.db(ctx).First(&out, id).Error != nil {
 		fail(ctx, 404, "connection not found")
+		return
+	}
+	if id != 0 && out.Type != in.Type && out.Type == "cloudflare_mcp" {
+		fail(ctx, 400, "create a separate connection when changing Cloudflare MCP authentication type")
+		return
+	}
+	if id != 0 && out.Type != in.Type && in.Type == "cloudflare_mcp" && len(in.Settings) == 0 {
+		fail(ctx, 400, "fresh settings required when switching to Cloudflare MCP")
 		return
 	}
 	if in.ProxyID != nil {
@@ -228,7 +237,32 @@ func (a *API) SaveConnection(ctx iris.Context) {
 func (a *API) DeleteConnection(ctx iris.Context) {
 	a.configMu.Lock()
 	defer a.configMu.Unlock()
-	a.delete(ctx, &store.Connection{})
+	id := ctx.Params().GetUintDefault("id", 0)
+	if id == 0 {
+		fail(ctx, 400, "invalid id")
+		return
+	}
+	err := a.db(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Delete(&store.Connection{}, id)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		txStore := *a.s
+		txStore.DB = tx
+		return (&cloudflaremcp.Service{Store: &txStore}).Disconnect(ctx.Request().Context(), id)
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		fail(ctx, 404, "connection not found")
+		return
+	}
+	if err != nil {
+		fail(ctx, 500, "delete failed")
+		return
+	}
+	respond(ctx, nil)
 }
 
 // ListProxies returns routing metadata without credentials.

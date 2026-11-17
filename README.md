@@ -43,6 +43,7 @@ The console supports Simplified Chinese and English, follows the browser languag
 - **Redis:** Key scanning, data access, and authorized commands.
 - **MySQL / PostgreSQL:** Schema inspection, parameterized SQL queries, and authorized writes through native database drivers.
 - **SQLite:** Access to database files registered on the ConnKit server.
+- **Cloudflare MCP:** Browser OAuth to the official Cloudflare MCP, encrypted refresh tokens, and registered-route tool forwarding. See [protocol settings](docs/protocols.md#cloudflare-official-mcp-browser-oauth).
 - **HTTPS:** Requests to configured API endpoints, with connection-level authentication, headers, and TLS settings.
 
 ### File uploads

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nathan77886/connkit/internal/cloudflaremcp"
 	"github.com/nathan77886/connkit/internal/store"
 )
 
@@ -27,32 +28,35 @@ type Actor struct {
 
 // Input contains only operation data, never target addresses or credentials.
 type Input struct {
-	ConnectionID uint     `json:"connection_id"`
-	Container    string   `json:"container,omitempty"`
-	SessionID    string   `json:"session_id,omitempty"`
-	Width        int      `json:"width,omitempty"`
-	Height       int      `json:"height,omitempty"`
-	Action       string   `json:"action,omitempty"`
-	X            int      `json:"x,omitempty"`
-	Y            int      `json:"y,omitempty"`
-	Button       string   `json:"button,omitempty"`
-	ScanCode     int      `json:"scan_code,omitempty"`
-	Down         bool     `json:"down,omitempty"`
-	Query        string   `json:"query,omitempty"`
-	Params       []any    `json:"params,omitempty"`
-	Limit        int      `json:"limit,omitempty"`
-	Table        string   `json:"table,omitempty"`
-	Command      string   `json:"command,omitempty"`
-	Args         []string `json:"args,omitempty"`
-	Path         string   `json:"path,omitempty"`
-	Method       string   `json:"method,omitempty"`
-	Body         string   `json:"body,omitempty"`
-	Collection   string   `json:"collection,omitempty"`
-	Filter       string   `json:"filter,omitempty"`
-	Document     string   `json:"document,omitempty"`
-	Pipeline     string   `json:"pipeline,omitempty"`
-	Cursor       uint64   `json:"cursor,omitempty"`
-	Pattern      string   `json:"pattern,omitempty"`
+	ToolName      string         `json:"tool_name,omitempty"`
+	ToolArguments map[string]any `json:"tool_arguments,omitempty"`
+	PageCursor    string         `json:"page_cursor,omitempty"`
+	ConnectionID  uint           `json:"connection_id"`
+	Container     string         `json:"container,omitempty"`
+	SessionID     string         `json:"session_id,omitempty"`
+	Width         int            `json:"width,omitempty"`
+	Height        int            `json:"height,omitempty"`
+	Action        string         `json:"action,omitempty"`
+	X             int            `json:"x,omitempty"`
+	Y             int            `json:"y,omitempty"`
+	Button        string         `json:"button,omitempty"`
+	ScanCode      int            `json:"scan_code,omitempty"`
+	Down          bool           `json:"down,omitempty"`
+	Query         string         `json:"query,omitempty"`
+	Params        []any          `json:"params,omitempty"`
+	Limit         int            `json:"limit,omitempty"`
+	Table         string         `json:"table,omitempty"`
+	Command       string         `json:"command,omitempty"`
+	Args          []string       `json:"args,omitempty"`
+	Path          string         `json:"path,omitempty"`
+	Method        string         `json:"method,omitempty"`
+	Body          string         `json:"body,omitempty"`
+	Collection    string         `json:"collection,omitempty"`
+	Filter        string         `json:"filter,omitempty"`
+	Document      string         `json:"document,omitempty"`
+	Pipeline      string         `json:"pipeline,omitempty"`
+	Cursor        uint64         `json:"cursor,omitempty"`
+	Pattern       string         `json:"pattern,omitempty"`
 }
 
 // Settings are encrypted per connection. Writes/arbitrary commands require opt-in.
@@ -130,6 +134,22 @@ func (s *Service) Run(ctx context.Context, a Actor, tool string, in Input) (out 
 	switch {
 	case tool == "connection_test":
 		out, err = s.test(ctx, c, cfg)
+	case c.Type == "cloudflare_mcp":
+		action := ""
+		if tool == "cloudflare_tools" {
+			action = "tools"
+		}
+		if tool == "cloudflare_call" {
+			action = "call"
+		}
+		args, marshalErr := json.Marshal(in.ToolArguments)
+		if marshalErr != nil {
+			return nil, errors.New("invalid Cloudflare tool arguments")
+		}
+		if in.ToolArguments == nil {
+			args = []byte(`{}`)
+		}
+		out, err = (&cloudflaremcp.Service{Store: s.Store}).Run(ctx, c, action, in.ToolName, args, in.PageCursor, cfg.AllowWrite, cfg.AllowExec)
 	case c.Type == "onepanel":
 		out, err = s.onepanel(ctx, c, cfg, tool, in)
 	case c.Type == "rdp":
@@ -175,6 +195,8 @@ func address(c Settings, port int) (string, error) {
 
 func (s *Service) test(ctx context.Context, c store.Connection, cfg Settings) (any, error) {
 	switch c.Type {
+	case "cloudflare_mcp":
+		return (&cloudflaremcp.Service{Store: s.Store}).Run(ctx, c, "tools", "", nil, "", false, false)
 	case "sqlite", "mysql", "postgres":
 		db, err := s.openSQL(ctx, c, cfg, false)
 		if err != nil {

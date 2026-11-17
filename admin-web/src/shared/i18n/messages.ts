@@ -1,5 +1,20 @@
 // English source messages are the typed keys; protocol identifiers stay unchanged.
 export const zhCN = {
+ "Authorize": "授权",
+ "Cloudflare MCP authorization": "Cloudflare MCP 授权",
+ "Sign in on Cloudflare and select the account and permissions for this connection. Credentials are encrypted on the server.": "前往 Cloudflare 登录并选择此连接的账号和权限，凭据在服务端加密保存。",
+ "Invalid Cloudflare authorization URL": "Cloudflare 授权地址无效",
+ "Authorization saved. Test the connection, then verify domain and R2 access.": "授权已保存，请测试连接并核验域名和 R2 权限。",
+ "Cloudflare login required": "需要登录 Cloudflare",
+ "Sign in / authorize": "登录 / 授权",
+ "Disconnect authorization": "断开授权",
+ "Disconnect removes local credentials. Revoke the app in Cloudflare to remove its upstream grant.": "断开会移除本地凭据。如需撤销上游授权，请在 Cloudflare 中撤销此应用。",
+ "OAuth flow missing. Start authorization again.": "授权流程不存在，请重新发起授权。",
+ "OAuth state mismatch. Start authorization again.": "授权状态不匹配，请重新发起授权。",
+ "Cloudflare authorization was denied. Start authorization again.": "Cloudflare 授权被拒绝，请重新发起授权。",
+ "Completing Cloudflare authorization...": "正在完成 Cloudflare 授权……",
+ "Save this connection, then click Authorize. No API token is needed. MCP tool calls require allow_write and allow_exec in settings.": "保存连接后点击“授权”，无需填写 API Token。调用 MCP 工具需要在参数中同时开启 allow_write 和 allow_exec。",
+
  'Language': '语言',
  'Connections': '系统连接', 'Proxies': '代理器', 'API keys': 'API 密钥',
  'Cloud storage': '云存储', 'Tool calls': '调用记录', 'Access policy': '访问策略',

@@ -43,6 +43,7 @@ ConnKit 通过一个管理控制台集中管理系统连接、凭据和出站代
 - **Redis：** Key 扫描、数据访问及授权命令调用。
 - **MySQL / PostgreSQL：** 通过原生数据库驱动查看表结构、执行参数化 SQL 查询及授权写入。
 - **SQLite：** 访问在 ConnKit 服务端登记的数据库文件。
+- **Cloudflare MCP：** 在后台通过浏览器登录官方 MCP 并授权，加密保存和续期凭据，通过登记的连接调用工具。详见[协议文档](docs/protocols.md#cloudflare-official-mcp-browser-oauth)。
 - **HTTPS：** 调用已配置的 API 地址，使用连接级认证、请求头和 TLS 设置。
 
 ### 文件上传

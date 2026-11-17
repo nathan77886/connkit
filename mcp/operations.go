@@ -14,6 +14,8 @@ import (
 
 func registerOperations(server *sdk.Server, s *store.Store, token string, anonymous bool, caller string, service *operations.Service) {
 	tools := map[string]string{
+		"cloudflare_tools":  "List tools and schemas from the registered official Cloudflare MCP OAuth connection. Optional page_cursor from nextCursor. Does not prove domain or R2 permissions.",
+		"cloudflare_call":   "Call an official Cloudflare MCP tool using tool_name and tool_arguments (JSON object). Requires both allow_write and allow_exec because upstream code can mutate resources. Never retry an unknown outcome.",
 		"onepanel_request":  "Call a relative 1Panel v2 API path using method and JSON body. Known read endpoints work by default; other endpoints require both allow_write and allow_exec. Authentication and terminal endpoints are reserved. No automatic retries.",
 		"onepanel_logs":     "Read bounded 1Panel container logs using container and optional limit (tail lines).",
 		"onepanel_exec":     "Execute command inside a 1Panel container using container ID and command; requires allow_exec. Returns output and exit_code only after a completion marker. Never retry an unknown outcome.",
@@ -47,6 +49,9 @@ func registerOperations(server *sdk.Server, s *store.Store, token string, anonym
 	for name, description := range tools {
 		sdk.AddTool(server, &sdk.Tool{Name: name, Description: description}, func(ctx context.Context, _ *sdk.CallToolRequest, in operations.Input) (*sdk.CallToolResult, any, error) {
 			out, err := service.Run(ctx, operations.Actor{Token: token, Anonymous: anonymous, Caller: caller}, name, in)
+			if result, ok := out.(*sdk.CallToolResult); ok && err == nil {
+				return result, nil, nil
+			}
 			return nil, out, err
 		})
 	}

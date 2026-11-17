@@ -59,6 +59,49 @@ A pinned `host_key` is required. `password` is an alternative to `private_key`; 
 
 GET, HEAD and OPTIONS are available by default. POST, PUT, PATCH and DELETE require `allow_write`. A server can still implement side effects on GET; choose endpoints and target credentials accordingly. HTTP status is returned even for errors; check both status and content.
 
+`connection_test` uses HEAD at the base URL by default. Set `test_path` to a relative read endpoint to perform an authenticated GET there instead. The configured base-path/origin limits still apply. The upstream status and body are returned unchanged: HTTP 200 alone does not prove API success.
+
+### Cloudflare API Token (HTTPS)
+
+For an existing scoped API token, use the `https` adapter and `https_request`. This is separate from the official MCP OAuth connection below. Register an API token in encrypted connection settings:
+
+```json
+{"base_url":"https://api.cloudflare.com/client/v4/","test_path":"user/tokens/verify","token":"replace-me","headers":{"Accept":"application/json","Content-Type":"application/json"},"allow_write":false,"allow_exec":false}
+```
+
+`connection_test` now calls `GET /client/v4/user/tokens/verify`. Require HTTP 200, `success:true`, and `result.status:active`. This confirms token validity, not permissions for every product. Use `zones?per_page=50` and inspect each zone's `permissions`; follow `result_info` pagination. DNS records use `zones/<zone_id>/dns_records?per_page=50`.
+
+Enable `allow_write:true` only on a connection intended for authorized management. For example, a DNS create uses `https_request` with `method:POST`, `path:zones/<zone_id>/dns_records`, and a JSON `body`. Registration does not authorize changes to arbitrary domains. DNS read/edit scope does not grant Workers, Pages, Tunnel, or account-level custom-domain permissions. The upstream token remains the final scope boundary. Do not test write permissions by creating or modifying production DNS records; inspect granted permissions instead.
+
+For a legacy Global API Key, configure encrypted `headers` containing `X-Auth-Email` and `X-Auth-Key` instead of `token`, and choose a permitted read probe such as `zones?per_page=1`. Prefer scoped API tokens. This HTTPS Token connection has no OAuth renewal; expired credentials return the upstream error without direct fallback or retries.
+
+References: [Token verification](https://developers.cloudflare.com/api/resources/user/subresources/tokens/methods/verify/), [API keys](https://developers.cloudflare.com/fundamentals/api/get-started/keys/).
+
+### Cloudflare official MCP (browser OAuth)
+
+Create a **new** connection with type `cloudflare_mcp`. No API token or endpoint is entered:
+
+```json
+{"allow_write":false,"allow_exec":false,"timeout_seconds":30}
+```
+
+Save it, click **Authorize**, then **Sign in / authorize**. ConnKit redirects the current browser tab to the same official endpoint used by Codex: `https://mcp.cloudflare.com/mcp`. Cloudflare handles login and consent; its authorization screen determines the account and product permissions. This does not import Codex's cached credentials or reuse a DDNS token.
+
+The redirect URI is the Admin browser origin plus `/oauth/cloudflare/callback`; keep the same origin and browser tab throughout the flow. Use an HTTPS Admin origin when available. Localhost and explicit private-IP HTTP origins are supported for LAN installations, subject to Cloudflare accepting the registered redirect URI. No public callback listener is required: the browser returns to Admin, which completes the exchange through its authenticated API. Each flow expires after ten minutes, is tied to the initiating Admin session, and uses S256 PKCE and one-use state. A new flow for the same connection replaces the previous flow.
+
+Credentials, refresh tokens and pending flows are encrypted in ConnKit's shared configuration store. Refresh is persisted and serialized across Admin/MCP instances; all upstream traffic uses the connection's current proxy route. Callback codes are removed from browser history, and the bundled Nginx callback location disables query-string access logging and referrers. Apply equivalent logging/referrer rules to any additional reverse proxy. Disconnect removes both saved credentials and pending flows; revoke the app in Cloudflare itself to revoke the upstream grant. Deleting a connection removes its local OAuth data.
+
+| Tool | Input and behavior |
+| --- | --- |
+| `cloudflare_tools` | `connection_id`, optional `page_cursor`; returns upstream tool schemas and `nextCursor` |
+| `cloudflare_call` | `connection_id`, `tool_name`, `tool_arguments` (JSON object); returns the upstream MCP result, including `isError` |
+| `connection_test` | Initializes the official MCP and lists tools using saved OAuth credentials |
+
+Actual MCP tool calls require **both** `allow_write:true` and `allow_exec:true`: Cloudflare's executable tools can make arbitrary API calls, and tool annotations or JavaScript inspection cannot enforce read-only access. Read-only connections may list tools and test authentication, but cannot execute arbitrary upstream code. Existing connection grants, anonymous-listener policy, time/output bounds and metadata-only call audit still apply. Credentials, code and arguments are not recorded in the audit. Remote calls and token exchanges are not retried automatically. Expired or revoked grants require renewed browser authorization if refresh fails.
+
+Tool discovery proves MCP authentication only. After authorization, inspect the actual visible zones and R2 accounts through the official tools and confirm `coinpaas.com` and the intended account. Do not change DNS, R2 bindings or application configuration merely to test permissions. Existing HTTPS Token connections remain separate and are not converted or overwritten.
+
+
 ## 1Panel v2
 
 The `onepanel` connection type uses a registered panel origin, credentials and proxy route. This is the panel HTTP API/WebSocket protocol, independent of the server's SSH credentials.
@@ -179,3 +222,17 @@ Kubernetes exec/port-forward/watch, MongoDB SRV, Redis Cluster/Sentinel, structu
 Automated local tests cover RDP negotiation/TLS pinning, missing credentials, authentication-worker failure, timeout and cleanup, session ownership, input opt-in, count/idle limits and revocation, plus SQLite reads/writes, parameter binding, output limits, configuration-file isolation, HTTPS with real TLS fixtures, target restrictions, redirects, proxy failure without fallback, MCP tool registration/audit, live CIDR policy, key lifecycle, proxy chains and S3/SSH file delivery. Run `./scripts/test-native-fixtures.sh` to create disposable loopback-only MySQL and Redis containers, test native driver authentication/operations and permissions, then remove the fixtures. It requires Docker and never uses existing database services.
 
 Tests use isolated fixtures, not the operator's real databases, Kubernetes cluster or cloud bucket. Validate target accounts, proxy routes, provider compatibility and application results before deployment.
+
+### Alibaba Cloud RPC (read-only HTTPS)
+
+Use `type: https`, a regional root endpoint, and encrypted `aliyun_rpc` settings:
+
+```json
+{"base_url":"https://ecs.cn-shanghai.aliyuncs.com","aliyun_rpc":{"service":"ecs","region_id":"cn-shanghai","access_key_id":"...","access_key_secret":"..."},"allow_write":false,"allow_exec":false}
+```
+
+`service` supports `ecs`, `vpc`, and `hbr`. Each connection fixes its region, endpoint and API version. Optional `security_token` supports an existing STS session; expiry is returned by the upstream API, without credential refresh or retries. Prefer a RAM credential with only the required read permissions.
+
+Call `https_request` with a query path such as `?Action=DescribeInstances&InstanceIds=%5B%22i-example%22%5D`. ConnKit signs each request using Alibaba Cloud RPC signature v1.0 (HMAC-SHA1), timestamp and random nonce. Only explicitly listed read actions in `internal/operations/aliyun.go` are accepted. POST, request bodies, unknown actions, duplicate query parameters, credential/region/version overrides and alternate endpoints are rejected even with `allow_write`. Command execution and resource mutations are unavailable. GET is not treated as proof that an Alibaba Cloud action is read-only.
+
+`connection_test` performs `DescribeRegions` for ECS/VPC and `DescribeVaults` for HBR. Inspect the returned HTTP status and JSON `Code`/`Success`; a successful connection test is not backup acceptance. Transport errors omit the signed URL. Existing proxy, TLS, response size limits and metadata-only auditing apply.

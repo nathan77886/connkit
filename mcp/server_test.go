@@ -93,7 +93,7 @@ func TestToolRegistrationAuditAndLiveCIDRPolicy(t *testing.T) {
 		return w
 	}
 	w := request("tools/list", `{}`)
-	for _, name := range []string{"db_query", "ssh_exec", "https_request", "k8s_get", "mongo_find", "redis_scan", "sftp_read", "connection_test", "onepanel_request", "onepanel_logs", "onepanel_exec"} {
+	for _, name := range []string{"db_query", "ssh_exec", "https_request", "k8s_get", "mongo_find", "redis_scan", "sftp_read", "connection_test", "onepanel_request", "onepanel_logs", "onepanel_exec", "cloudflare_tools", "cloudflare_call"} {
 		if !strings.Contains(w.Body.String(), name) {
 			t.Fatalf("missing %s: %s", name, w.Body)
 		}
@@ -102,8 +102,12 @@ func TestToolRegistrationAuditAndLiveCIDRPolicy(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "access denied") {
 		t.Fatalf("denied tool: %d %s", w.Code, w.Body)
 	}
+	w = request("tools/call", `{"name":"cloudflare_call","arguments":{"connection_id":42,"tool_name":"execute","tool_arguments":{"code":"secret-code-not-for-audit","nested":{"count":9007199254740993}}}}`)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "access denied") {
+		t.Fatalf("Cloudflare object arguments rejected by MCP schema: %d %s", w.Code, w.Body)
+	}
 	var calls []store.Call
-	if err = s.DB.Find(&calls).Error; err != nil || len(calls) != 1 || calls[0].Status != "error" || calls[0].Tool != "db_query" || calls[0].Actor != "anonymous" {
+	if err = s.DB.Find(&calls).Error; err != nil || len(calls) != 2 || calls[1].Tool != "cloudflare_call" || calls[1].Status != "error" || calls[0].Status != "error" || calls[0].Tool != "db_query" || calls[0].Actor != "anonymous" {
 		t.Fatalf("audit: %+v %v", calls, err)
 	}
 	if err = s.SaveAccessPolicy(t.Context(), store.AccessPolicy{AnonymousCIDRs: []string{"10.0.0.0/8"}}); err != nil {
