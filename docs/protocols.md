@@ -168,6 +168,18 @@ Use a service-account token or client certificate configured directly. Kubeconfi
 
 Only `/api/`, `/apis/` and `/version` paths are accepted. Proxy, exec, attach and portforward subresources are rejected. Watch/follow streams are disabled. Kubernetes RBAC controls accessible namespaces, resources and verbs. The adapter returns API status and body for the caller to inspect; HTTP 403 does not count as business success even though the transport completed.
 
+## Argo CD
+
+The `argo` connection type targets an Argo CD server, keeps its token or username/password encrypted, and routes every request through the configured ConnKit proxy.
+
+```json
+{"base_url":"https://argocd.example.net/","username":"admin","password":"replace-me","ca_pem":"-----BEGIN CERTIFICATE-----\n..."}
+```
+
+Use `token` instead of `username` and `password` when a dedicated Argo token is available. `connection_test` calls `/api/v1/version`; `argo_request` accepts only relative `/api/v1/` paths and never exposes the login endpoint or the resulting session token. Redirects are refused and write failures are reported as unknown outcomes.
+
+The Admin Connections page provides **Open Argo** for enabled Argo connections. ConnKit authenticates server-side, creates a random 15-minute embed URL, and proxies the UI while injecting the Argo bearer token. The password is never placed in the iframe URL, browser storage, or audit record. Treat the embed URL as a temporary bearer credential and use HTTPS for the Admin origin; restarting the Admin process invalidates outstanding embed URLs.
+
 ## RDP
 
 RDP uses a headless FreeRDP 2 worker bundled into the Admin and MCP images. No extra service or exposed backend port is needed. Credentials enter the worker over a private pipe; backend logs are discarded. Every network connection from the worker is restricted to its loopback relay. The relay uses the existing route dialer, including direct, SOCKS5, HTTP/HTTPS CONNECT and SSH proxy chains. Server redirection cannot replace that route.

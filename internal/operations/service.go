@@ -157,6 +157,8 @@ func (s *Service) Run(ctx context.Context, a Actor, tool string, in Input) (out 
 		out, err = s.ssh(ctx, c, cfg, tool, in)
 	case c.Type == "https" || c.Type == "k8s":
 		out, err = s.http(ctx, c, cfg, tool, in)
+	case c.Type == "argo":
+		out, err = s.argo(ctx, c, cfg, tool, in)
 	case c.Type == "redis":
 		out, err = s.redis(ctx, c, cfg, tool, in)
 	case c.Type == "mongodb":
@@ -223,6 +225,8 @@ func (s *Service) test(ctx context.Context, c store.Connection, cfg Settings) (a
 		return s.http(ctx, c, cfg, "https_request", Input{Method: "HEAD"})
 	case "k8s":
 		return s.http(ctx, c, cfg, "k8s_get", Input{Path: "/version"})
+	case "argo":
+		return s.argo(ctx, c, cfg, "argo_request", Input{Method: "GET", Path: "/api/v1/version"})
 	case "redis":
 		return s.redis(ctx, c, cfg, "redis_test", Input{})
 	case "mongodb":

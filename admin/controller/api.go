@@ -23,6 +23,14 @@ type API struct {
 	password   []byte
 	loginLimit *rate.Limiter
 	configMu   sync.Mutex
+	embedMu    sync.Mutex
+	embeds     map[string]argoEmbed
+}
+
+type argoEmbed struct {
+	ConnectionID uint
+	Token        string
+	ExpiresAt    time.Time
 }
 
 // New hashes the operator-provided bootstrap password; there is no default password.
@@ -35,7 +43,7 @@ func New(s *store.Store, username, password string) (*API, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &API{s: s, username: username, password: hash, loginLimit: rate.NewLimiter(rate.Every(6*time.Second), 5)}, nil
+	return &API{s: s, username: username, password: hash, loginLimit: rate.NewLimiter(rate.Every(6*time.Second), 5), embeds: map[string]argoEmbed{}}, nil
 }
 func respond(ctx iris.Context, data any) { _ = ctx.JSON(iris.Map{"code": 0, "data": data}) }
 func fail(ctx iris.Context, status int, message string) {
@@ -184,7 +192,7 @@ func (a *API) SaveConnection(ctx iris.Context) {
 		AllowAnonymous bool            `json:"allow_anonymous"`
 		Settings       json.RawMessage `json:"settings"`
 	}
-	if ctx.ReadJSON(&in) != nil || strings.TrimSpace(in.Name) == "" || !contains([]string{"ssh", "k8s", "rdp", "mongodb", "redis", "mysql", "postgres", "sqlite", "https", "onepanel", "cloudflare_mcp"}, in.Type) {
+	if ctx.ReadJSON(&in) != nil || strings.TrimSpace(in.Name) == "" || !contains([]string{"ssh", "k8s", "argo", "rdp", "mongodb", "redis", "mysql", "postgres", "sqlite", "https", "onepanel", "cloudflare_mcp"}, in.Type) {
 		fail(ctx, 400, "valid connection name and type required")
 		return
 	}

@@ -2,13 +2,20 @@ package controller
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/kataras/iris/v12"
 	"github.com/nathan77886/connkit/internal/operations"
+	"github.com/nathan77886/connkit/internal/route"
 	"github.com/nathan77886/connkit/internal/store"
 )
 
@@ -119,4 +126,103 @@ func (a *API) TestConnection(ctx iris.Context) {
 		return
 	}
 	respond(ctx, out)
+}
+
+// CreateArgoEmbed creates a short-lived bearer URL for the Argo UI proxy.
+func (a *API) CreateArgoEmbed(ctx iris.Context) {
+	id := ctx.Params().GetUintDefault("id", 0)
+	var c store.Connection
+	if id == 0 || a.db(ctx).Where("id = ? AND enabled = ? AND type = ?", id, true, "argo").First(&c).Error != nil {
+		fail(ctx, 404, "Argo connection not found")
+		return
+	}
+	var cfg operations.Settings
+	if err := a.s.Decrypt(c.Secret, &cfg); err != nil {
+		fail(ctx, 500, "Argo settings unavailable")
+		return
+	}
+	token, err := (&operations.Service{Store: a.s}).ArgoSessionToken(ctx.Request().Context(), c, cfg)
+	if err != nil {
+		fail(ctx, 502, err.Error())
+		return
+	}
+	random := make([]byte, 32)
+	if _, err = cryptoRandRead(random); err != nil {
+		fail(ctx, 500, "embed session creation failed")
+		return
+	}
+	idToken := fmt.Sprintf("%x", random)
+	a.embedMu.Lock()
+	a.embeds[idToken] = argoEmbed{ConnectionID: c.ID, Token: token, ExpiresAt: time.Now().Add(15 * time.Minute)}
+	a.embedMu.Unlock()
+	scheme := ctx.GetHeader("X-Forwarded-Proto")
+	if scheme != "https" {
+		scheme = "http"
+	}
+	respond(ctx, iris.Map{"url": scheme + "://" + ctx.Host() + "/api/v1/argo/embed/" + idToken + "/"})
+}
+
+// cryptoRandRead is a variable-sized wrapper kept separate for testability.
+var cryptoRandRead = func(b []byte) (int, error) { return rand.Read(b) }
+
+// ArgoEmbed proxies the Argo web UI and injects the server-side token.
+func (a *API) ArgoEmbed(ctx iris.Context) {
+	idToken := ctx.Params().Get("token")
+	a.embedMu.Lock()
+	session, ok := a.embeds[idToken]
+	if ok && time.Now().After(session.ExpiresAt) {
+		delete(a.embeds, idToken)
+		ok = false
+	}
+	a.embedMu.Unlock()
+	if !ok {
+		ctx.StatusCode(404)
+		return
+	}
+	var c store.Connection
+	if a.db(ctx).Where("id = ? AND enabled = ? AND type = ?", session.ConnectionID, true, "argo").First(&c).Error != nil {
+		ctx.StatusCode(404)
+		return
+	}
+	var cfg operations.Settings
+	if err := a.s.Decrypt(c.Secret, &cfg); err != nil {
+		ctx.StatusCode(500)
+		return
+	}
+	target, err := url.Parse(cfg.BaseURL)
+	if err != nil || target.Scheme != "https" || target.Host == "" {
+		ctx.StatusCode(500)
+		return
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	tlsConfig, err := operations.ArgoTLSConfig(cfg, target.Hostname())
+	if err != nil {
+		ctx.StatusCode(500)
+		return
+	}
+	proxy.Transport = &http.Transport{TLSClientConfig: tlsConfig, DisableKeepAlives: true, DialContext: func(reqCtx context.Context, _, addr string) (net.Conn, error) {
+		return (&route.Dialer{Store: a.s}).DialContext(reqCtx, c.ProxyID, addr)
+	}}
+	proxy.Rewrite = func(proxyReq *httputil.ProxyRequest) {
+		pathPart := ctx.Params().Get("path")
+		if pathPart == "" {
+			pathPart = "/"
+		} else if !strings.HasPrefix(pathPart, "/") {
+			pathPart = "/" + pathPart
+		}
+		proxyReq.SetURL(target)
+		proxyReq.Out.URL.Path = pathPart
+		proxyReq.Out.URL.RawPath = ""
+		proxyReq.Out.Header.Set("Authorization", "Bearer "+session.Token)
+		proxyReq.Out.Header.Del("Cookie")
+		proxyReq.Out.Host = target.Host
+	}
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		resp.Header.Del("X-Frame-Options")
+		resp.Header.Set("Content-Security-Policy", "frame-ancestors 'self'")
+		resp.Header.Set("Cache-Control", "no-store")
+		return nil
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) { w.WriteHeader(http.StatusBadGateway) }
+	proxy.ServeHTTP(ctx.ResponseWriter(), ctx.Request())
 }

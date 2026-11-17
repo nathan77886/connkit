@@ -19,6 +19,7 @@ export const zhCN = {
 
  'Language': '语言',
  'Connections': '系统连接', 'Proxies': '代理器', 'API keys': 'API 密钥',
+ 'Open Argo': '打开 Argo', 'Argo CD': 'Argo CD',
  'Cloud storage': '云存储', 'Tool calls': '调用记录', 'Access policy': '访问策略',
  'Connection management': '连接管理', 'Theme': '切换主题', 'Sign out': '退出登录',
  'ConnKit Admin': 'ConnKit 管理后台',

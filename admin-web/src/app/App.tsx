@@ -11,7 +11,7 @@ import { CloudflareAuthorization, CloudflareCallback } from '../pages/cloudflare
 
 type Resource = { id: number; name: string; type?: string; enabled?: boolean; allow_anonymous?: boolean; proxy_id?: number; upstream_id?: number; prefix?: string; connection_ids?: number[]; expires_at?: string; settings?: string };
 type Kind = 'connections' | 'proxies' | 'keys';
-const connectionTypes = ['ssh', 'k8s', 'rdp', 'mongodb', 'redis', 'mysql', 'postgres', 'sqlite', 'https', 'onepanel', 'cloudflare_mcp'];
+const connectionTypes = ['ssh', 'k8s', 'argo', 'rdp', 'mongodb', 'redis', 'mysql', 'postgres', 'sqlite', 'https', 'onepanel', 'cloudflare_mcp'];
 
 function Login() {
  const { t } = useI18n();
@@ -39,6 +39,7 @@ function ResourcePage({ kind }: { kind: Kind }) {
  const [editing, setEditing] = useState<Resource>();
  const [revealed, setRevealed] = useState('');
  const [oauthID, setOAuthID] = useState<number>();
+ const [embedURL, setEmbedURL] = useState('');
  const [form] = Form.useForm();
  useFormLanguage(form);
  async function load() {
@@ -75,7 +76,7 @@ function ResourcePage({ kind }: { kind: Kind }) {
   { title: t('ID'), dataIndex: 'id', width: 70 }, { title: t('Name'), dataIndex: 'name' },
   ...(kind === 'keys' ? [{ title: t('Prefix'), dataIndex: 'prefix' }, { title: t('Connection IDs'), render: (_: unknown, row: Resource) => row.connection_ids?.join(', ') || t('None') }] : [{ title: t('Type'), dataIndex: 'type' }]),
   ...(kind !== 'proxies' ? [{ title: t('Status'), render: (_: unknown, row: Resource) => <Tag color={row.enabled ? 'green' : 'gray'}>{row.enabled ? t('Enabled') : t('Disabled')}</Tag> }] : []),
-  { title: t('Actions'), width: 320, render: (_: unknown, row: Resource) => <Space><Button size="small" onClick={() => open(row)}>{t('Edit')}</Button>{kind === 'connections' && row.type === 'cloudflare_mcp' && <Button size="small" onClick={() => setOAuthID(row.id)}>{t('Authorize')}</Button>}{kind === 'connections' && <Button size="small" onClick={async () => { try { const { data } = await request.post(`/connections/${row.id}/test`, {}, { timeout: 40000 }); Modal.info({ title: t('Connection test'), okText: t('Done'), content: <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(data.data, null, 2)}</pre> }); } catch (e) { Message.error(errorMessage(e)); } }}>{t('Test')}</Button>}<Popconfirm title={kind === 'keys' ? t('Revoke this key?') : t('Delete this configuration?')} onOk={() => remove(row)}><Button size="small" status="danger">{kind === 'keys' ? t('Revoke') : t('Delete')}</Button></Popconfirm></Space> }
+  { title: t('Actions'), width: 390, render: (_: unknown, row: Resource) => <Space><Button size="small" onClick={() => open(row)}>{t('Edit')}</Button>{kind === 'connections' && row.type === 'argo' && <Button size="small" onClick={async () => { try { const { data } = await request.post(`/connections/${row.id}/argo-embed`, {}, { timeout: 40000 }); setEmbedURL(data.data.url); } catch (e) { Message.error(errorMessage(e)); } }}>{t('Open Argo')}</Button>}{kind === 'connections' && row.type === 'cloudflare_mcp' && <Button size="small" onClick={() => setOAuthID(row.id)}>{t('Authorize')}</Button>}{kind === 'connections' && <Button size="small" onClick={async () => { try { const { data } = await request.post(`/connections/${row.id}/test`, {}, { timeout: 40000 }); Modal.info({ title: t('Connection test'), okText: t('Done'), content: <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(data.data, null, 2)}</pre> }); } catch (e) { Message.error(errorMessage(e)); } }}>{t('Test')}</Button>}<Popconfirm title={kind === 'keys' ? t('Revoke this key?') : t('Delete this configuration?')} onOk={() => remove(row)}><Button size="small" status="danger">{kind === 'keys' ? t('Revoke') : t('Delete')}</Button></Popconfirm></Space> }
  ];
  return <Card>
   {oauthID !== undefined && <CloudflareAuthorization id={oauthID} onClose={() => setOAuthID(undefined)} />}
@@ -99,6 +100,7 @@ function ResourcePage({ kind }: { kind: Kind }) {
    </Form>
   </Modal>
   <Modal title={t('Copy your API key')} visible={Boolean(revealed)} footer={<Button type="primary" onClick={() => setRevealed('')}>{t('Done')}</Button>} onCancel={() => setRevealed('')}><Typography.Paragraph>{t('This key is shown once. Store it securely.')}</Typography.Paragraph><Input value={revealed} readOnly onFocus={(event) => event.target.select()} /></Modal>
+  <Modal title={t('Argo CD')} visible={Boolean(embedURL)} onCancel={() => setEmbedURL('')} footer={null} style={{ width: '90vw' }}><iframe src={embedURL || undefined} title="Argo CD" style={{ width: '100%', height: '70vh', border: 0 }} referrerPolicy="no-referrer" /></Modal>
  </Card>;
 }
 

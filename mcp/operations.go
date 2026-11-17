@@ -45,6 +45,7 @@ func registerOperations(server *sdk.Server, s *store.Store, token string, anonym
 		"k8s_logs":          "Read bounded pod logs using a /api/v1/namespaces/.../pods/.../log path.",
 		"k8s_apply":         "Server-side apply YAML/JSON body at an exact Kubernetes resource path; RBAC applies.",
 		"k8s_delete":        "Delete an exact Kubernetes resource path; RBAC applies. No automatic retry.",
+		"argo_request":      "Call a relative Argo CD API path under /api/v1 using the registered Argo credentials. Redirects are not followed; writes have no automatic retry.",
 	}
 	for name, description := range tools {
 		sdk.AddTool(server, &sdk.Tool{Name: name, Description: description}, func(ctx context.Context, _ *sdk.CallToolRequest, in operations.Input) (*sdk.CallToolResult, any, error) {
