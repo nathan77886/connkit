@@ -1,5 +1,7 @@
 // English source messages are the typed keys; protocol identifiers stay unchanged.
 export const zhCN = {
+ 'Requested permissions': '申请权限', 'Read zones': '查看域名', 'Read DNS': '查看 DNS', 'Edit DNS': '编辑 DNS',
+ 'Read R2': '查看 R2', 'Edit R2': '编辑 R2', 'Read R2 objects': '读取 R2 对象', 'Edit R2 objects': '编辑 R2 对象',
  "Authorize": "授权",
  "Cloudflare MCP authorization": "Cloudflare MCP 授权",
  "Sign in on Cloudflare and select the account and permissions for this connection. Credentials are encrypted on the server.": "前往 Cloudflare 登录并选择此连接的账号和权限，凭据在服务端加密保存。",

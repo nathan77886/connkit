@@ -71,7 +71,7 @@ func newFixture(t *testing.T) *fixture {
 	})
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"issuer": f.server.URL, "authorization_endpoint": f.server.URL + "/authorize", "token_endpoint": f.server.URL + "/token", "registration_endpoint": f.server.URL + "/register", "code_challenge_methods_supported": []string{"S256"}, "response_types_supported": []string{"code"}, "token_endpoint_auth_methods_supported": []string{"none"}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"issuer": f.server.URL, "authorization_endpoint": f.server.URL + "/authorize", "token_endpoint": f.server.URL + "/token", "registration_endpoint": f.server.URL + "/register", "code_challenge_methods_supported": []string{"S256"}, "response_types_supported": []string{"code"}, "token_endpoint_auth_methods_supported": []string{"none"}, "scopes_supported": []string{"offline_access", "dns.read", "workers-r2.write"}})
 	})
 	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
 		var in oAuthRegistration
@@ -144,7 +144,7 @@ func (f *fixture) begin(t *testing.T) string {
 		t.Fatal(err)
 	}
 	q := u.Query()
-	if q.Get("code_challenge_method") != "S256" || len(q["resource"]) != 1 || q.Get("resource") != f.s.endpoint || q.Get("scope") != "" {
+	if q.Get("code_challenge_method") != "S256" || len(q["resource"]) != 1 || q.Get("resource") != f.s.endpoint || q.Get("scope") != "offline_access" {
 		t.Fatalf("unexpected OAuth request: %v", q)
 	}
 	var row store.Setting
@@ -375,5 +375,20 @@ func TestOfficialOriginsAndCallbackValidation(t *testing.T) {
 		if _, err := f.s.Begin(t.Context(), f.c.ID, "session", redirect); err == nil {
 			t.Fatalf("unsafe callback accepted: %s", redirect)
 		}
+	}
+}
+
+func TestRequestedScopesAreAdvertisedAndOfflineAccessIsIncluded(t *testing.T) {
+	f := newFixture(t)
+	authURL, err := f.s.Begin(t.Context(), f.c.ID, "session", "http://localhost"+CallbackPath, "dns.read", "workers-r2.write", "dns.read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(authURL)
+	if u.Query().Get("scope") != "dns.read workers-r2.write offline_access" {
+		t.Fatalf("wrong scopes: %s", u.Query().Get("scope"))
+	}
+	if _, err = f.s.Begin(t.Context(), f.c.ID, "session", "http://localhost"+CallbackPath, "not-advertised"); err == nil {
+		t.Fatal("unsupported scope accepted")
 	}
 }

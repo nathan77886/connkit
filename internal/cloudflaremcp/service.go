@@ -138,7 +138,7 @@ func (s *Service) save(ctx context.Context, db *gorm.DB, key string, v any) erro
 
 // Begin performs discovery and public-client registration, then persists a
 // short-lived PKCE flow tied to the initiating Admin session.
-func (s *Service) Begin(ctx context.Context, id uint, owner, redirect string) (string, error) {
+func (s *Service) Begin(ctx context.Context, id uint, owner, redirect string, requested ...string) (string, error) {
 	c, err := s.connection(ctx, id)
 	if err != nil {
 		return "", err
@@ -191,6 +191,17 @@ func (s *Service) Begin(ctx context.Context, id uint, owner, redirect string) (s
 	if !slices.Contains(meta.CodeChallengeMethodsSupported, "S256") {
 		return "", errors.New("Cloudflare OAuth PKCE S256 support required")
 	}
+	for _, scope := range requested {
+		if !slices.Contains(meta.ScopesSupported, scope) {
+			return "", errors.New("requested Cloudflare permission is not advertised by the server")
+		}
+		if !slices.Contains(scopes, scope) {
+			scopes = append(scopes, scope)
+		}
+	}
+	if slices.Contains(meta.ScopesSupported, "offline_access") && !slices.Contains(scopes, "offline_access") {
+		scopes = append(scopes, "offline_access")
+	}
 	for _, raw := range []string{meta.AuthorizationEndpoint, meta.TokenEndpoint, meta.RegistrationEndpoint} {
 		if raw == "" || (s.endpoint == "" && !officialURL(raw)) {
 			return "", errors.New("invalid Cloudflare OAuth endpoint")
@@ -198,6 +209,7 @@ func (s *Service) Begin(ctx context.Context, id uint, owner, redirect string) (s
 	}
 	reg, err := oauthex.RegisterClient(ctx, meta.RegistrationEndpoint, &oauthex.ClientRegistrationMetadata{
 		ClientName: "ConnKit", RedirectURIs: []string{redirect}, GrantTypes: []string{"authorization_code", "refresh_token"}, ResponseTypes: []string{"code"}, TokenEndpointAuthMethod: "none",
+		Scope: strings.Join(scopes, " "),
 	}, client)
 	if err != nil {
 		return "", errors.New("Cloudflare OAuth client registration failed")

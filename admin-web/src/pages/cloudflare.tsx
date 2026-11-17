@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Card, Modal, Space, Typography } from '@arco-design/web-react';
+import { Alert, Button, Card, Modal, Select, Space, Typography } from '@arco-design/web-react';
 import { useI18n } from '../shared/i18n';
 import { errorMessage } from '../shared/i18n/core';
 import { request } from '../shared/api/request';
@@ -13,6 +13,7 @@ export function CloudflareAuthorization({ id, onClose }: { id: number; onClose: 
  const [status, setStatus] = useState<Status>();
  const [busy, setBusy] = useState(false);
  const [error, setError] = useState('');
+ const [scopes, setScopes] = useState(['zone.read', 'dns.read', 'dns.write', 'workers-r2.read', 'workers-r2.write']);
  async function refresh() {
   try { const { data } = await request.get(`/connections/${id}/oauth`); setStatus(data.data); setError(''); }
   catch (e) { setError(errorMessage(e)); }
@@ -21,7 +22,7 @@ export function CloudflareAuthorization({ id, onClose }: { id: number; onClose: 
  async function login() {
   setBusy(true); setError('');
   try {
-   const { data } = await request.post(`/connections/${id}/oauth/login`, { redirect_url: window.location.origin + callbackPath }, { timeout: 65000 });
+   const { data } = await request.post(`/connections/${id}/oauth/login`, { redirect_url: window.location.origin + callbackPath, scopes }, { timeout: 65000 });
    const url = new URL(data.data.authorization_url);
    if (url.protocol !== 'https:' || !(url.hostname === 'cloudflare.com' || url.hostname.endsWith('.cloudflare.com')) || !url.searchParams.get('state')) throw new Error(t('Invalid Cloudflare authorization URL'));
    sessionStorage.setItem(flowKey, JSON.stringify({ id, state: url.searchParams.get('state') }));
@@ -36,6 +37,12 @@ export function CloudflareAuthorization({ id, onClose }: { id: number; onClose: 
  }
  return <Modal title={t('Cloudflare MCP authorization')} visible onCancel={onClose} footer={<Button onClick={onClose}>{t('Done')}</Button>}>
   <Typography.Paragraph>{t('Sign in on Cloudflare and select the account and permissions for this connection. Credentials are encrypted on the server.')}</Typography.Paragraph>
+  <Typography.Paragraph>{t('Requested permissions')}</Typography.Paragraph>
+  <Select mode="multiple" value={scopes} onChange={setScopes} disabled={busy} style={{ marginBottom: 16 }} options={[
+   { value: 'zone.read', label: t('Read zones') }, { value: 'dns.read', label: t('Read DNS') }, { value: 'dns.write', label: t('Edit DNS') },
+   { value: 'workers-r2.read', label: t('Read R2') }, { value: 'workers-r2.write', label: t('Edit R2') },
+   { value: 'workers-r2-bucket-item.read', label: t('Read R2 objects') }, { value: 'workers-r2-bucket-item.write', label: t('Edit R2 objects') }
+  ]} />
   {error && <Alert type="error" content={error} />}
   {status && <Alert type={status.authorized ? 'success' : 'info'} content={status.authorized ? t('Authorization saved. Test the connection, then verify domain and R2 access.') : t('Cloudflare login required')} />}
   <Space style={{ marginTop: 16 }}><Button type="primary" loading={busy} onClick={() => { void login(); }}>{t('Sign in / authorize')}</Button>{status?.authorized && <Button status="danger" disabled={busy} onClick={() => { void disconnect(); }}>{t('Disconnect authorization')}</Button>}</Space>

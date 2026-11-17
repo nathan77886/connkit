@@ -23,7 +23,8 @@ func (a *API) CloudflareStatus(ctx iris.Context) {
 func (a *API) CloudflareLogin(ctx iris.Context) {
 	ctx.Header("Cache-Control", "no-store")
 	var in struct {
-		RedirectURL string `json:"redirect_url"`
+		RedirectURL string   `json:"redirect_url"`
+		Scopes      []string `json:"scopes"`
 	}
 	if ctx.ReadJSON(&in) != nil {
 		fail(ctx, 400, "callback URL required")
@@ -37,7 +38,7 @@ func (a *API) CloudflareLogin(ctx iris.Context) {
 	}
 	c, cancel := context.WithTimeout(ctx.Request().Context(), 60*time.Second)
 	defer cancel()
-	authorize, err := (&cloudflaremcp.Service{Store: a.s}).Begin(c, ctx.Params().GetUintDefault("id", 0), store.Digest(bearer(ctx)), in.RedirectURL)
+	authorize, err := (&cloudflaremcp.Service{Store: a.s}).Begin(c, ctx.Params().GetUintDefault("id", 0), store.Digest(bearer(ctx)), in.RedirectURL, in.Scopes...)
 	if err != nil {
 		fail(ctx, 400, err.Error())
 		return

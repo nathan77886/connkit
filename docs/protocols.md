@@ -85,7 +85,7 @@ Create a **new** connection with type `cloudflare_mcp`. No API token or endpoint
 {"allow_write":false,"allow_exec":false,"timeout_seconds":30}
 ```
 
-Save it, click **Authorize**, then **Sign in / authorize**. ConnKit redirects the current browser tab to the same official endpoint used by Codex: `https://mcp.cloudflare.com/mcp`. Cloudflare handles login and consent; its authorization screen determines the account and product permissions. This does not import Codex's cached credentials or reuse a DDNS token.
+Save it, click **Authorize**, then **Sign in / authorize**. ConnKit redirects the current browser tab to the same official endpoint used by Codex: `https://mcp.cloudflare.com/mcp`. Choose the requested DNS/R2 permissions in the authorization dialog. ConnKit validates them against official discovery metadata and requests `offline_access` when advertised so the grant can be renewed. Cloudflare handles login and consent; its authorization screen determines the account and product permissions. This does not import Codex's cached credentials or reuse a DDNS token.
 
 The redirect URI is the Admin browser origin plus `/oauth/cloudflare/callback`; keep the same origin and browser tab throughout the flow. Use an HTTPS Admin origin when available. Localhost and explicit private-IP HTTP origins are supported for LAN installations, subject to Cloudflare accepting the registered redirect URI. No public callback listener is required: the browser returns to Admin, which completes the exchange through its authenticated API. Each flow expires after ten minutes, is tied to the initiating Admin session, and uses S256 PKCE and one-use state. A new flow for the same connection replaces the previous flow.
 
