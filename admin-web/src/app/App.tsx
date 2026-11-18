@@ -1,6 +1,6 @@
 import { I18nProvider, LanguageSelect, useI18n, useFormLanguage } from '../shared/i18n';
 import { errorMessage } from '../shared/i18n/core';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Alert, Button, Card, Form, Input, Message, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography } from '@arco-design/web-react';
 import { AdminShell } from '../widgets/admin-shell';
@@ -40,6 +40,9 @@ function ResourcePage({ kind }: { kind: Kind }) {
  const [revealed, setRevealed] = useState('');
  const [oauthID, setOAuthID] = useState<number>();
  const [embedURL, setEmbedURL] = useState('');
+ const [connectionQuery, setConnectionQuery] = useState('');
+ const [connectionType, setConnectionType] = useState('');
+ const [connectionStatus, setConnectionStatus] = useState('');
  const [form] = Form.useForm();
  useFormLanguage(form);
  async function load() {
@@ -72,6 +75,16 @@ function ResourcePage({ kind }: { kind: Kind }) {
   finally { setSaving(false); }
  }
  async function remove(row: Resource) { try { await request.delete(`/${kind}/${row.id}`); await load(); } catch (error) { Message.error(errorMessage(error)); } }
+ const filteredRows = useMemo(() => {
+  if (kind !== 'connections') return rows;
+  const query = connectionQuery.trim().toLowerCase();
+  return rows.filter((row) => {
+   const matchesQuery = !query || [row.name, row.type, String(row.id)].some((value) => value?.toLowerCase().includes(query));
+   const matchesType = !connectionType || row.type === connectionType;
+   const matchesStatus = !connectionStatus || (connectionStatus === 'enabled' ? row.enabled : !row.enabled);
+   return matchesQuery && matchesType && matchesStatus;
+  });
+ }, [connectionQuery, connectionStatus, connectionType, kind, rows]);
  const columns = [
   { title: t('ID'), dataIndex: 'id', width: 70 }, { title: t('Name'), dataIndex: 'name' },
   ...(kind === 'keys' ? [{ title: t('Prefix'), dataIndex: 'prefix' }, { title: t('Connection IDs'), render: (_: unknown, row: Resource) => row.connection_ids?.join(', ') || t('None') }] : [{ title: t('Type'), dataIndex: 'type' }]),
@@ -80,9 +93,17 @@ function ResourcePage({ kind }: { kind: Kind }) {
  ];
  return <Card>
   {oauthID !== undefined && <CloudflareAuthorization id={oauthID} onClose={() => setOAuthID(undefined)} />}
-  <div className="page-toolbar"><Typography.Title heading={4} style={{ margin: 0 }}>{titles[kind]}</Typography.Title><Button type="primary" onClick={() => open()}>{t('Create')}</Button></div>
+  <div className="page-toolbar"><Typography.Title heading={4} style={{ margin: 0 }}>{titles[kind]}</Typography.Title><Space wrap>
+   {kind === 'connections' && <>
+    <Input.Search allowClear value={connectionQuery} onChange={setConnectionQuery} placeholder={t('Search connections')} style={{ width: 220 }} />
+    <Select allowClear value={connectionType || undefined} onChange={(value) => setConnectionType(value || '')} placeholder={t('All types')} options={connectionTypes.map((type) => ({ label: type, value: type }))} style={{ width: 150 }} />
+    <Select allowClear value={connectionStatus || undefined} onChange={(value) => setConnectionStatus(value || '')} placeholder={t('All statuses')} options={[{ label: t('Enabled'), value: 'enabled' }, { label: t('Disabled'), value: 'disabled' }]} style={{ width: 130 }} />
+    {(connectionQuery || connectionType || connectionStatus) && <Button onClick={() => { setConnectionQuery(''); setConnectionType(''); setConnectionStatus(''); }}>{t('Clear filters')}</Button>}
+   </>}
+   <Button type="primary" onClick={() => open()}>{t('Create')}</Button>
+  </Space></div>
   <Alert type="info" content={t('Configure protocol settings and routes, then test a connection. Operations follow your task instructions and target account permissions. See docs/protocols.md for settings and tools.')} style={{ marginBottom: 20 }} />
-  <Table rowKey="id" loading={loading} data={rows} columns={columns} scroll={{ x: 700 }} pagination={{ pageSize: 20 }} />
+  <Table rowKey="id" loading={loading} data={filteredRows} columns={columns} scroll={{ x: 700 }} pagination={{ pageSize: 20 }} />
   <Modal title={t(editing ? 'Edit {resource}' : 'Create {resource}', { resource: t(kind === 'keys' ? 'API key' : kind === 'connections' ? 'connection' : 'proxy') })} visible={visible} confirmLoading={saving} onCancel={() => setVisible(false)} onOk={save} unmountOnExit>
    <Form form={form} layout="vertical">
     <Form.Item field="name" label={t('Name')} rules={[{ required: true }]}><Input maxLength={120} /></Form.Item>

@@ -29,6 +29,7 @@ export const zhCN = {
  'None': '无', 'Type': '类型', 'Status': '状态', 'Actions': '操作',
  'Enabled': '已启用', 'Disabled': '已禁用', 'Enable': '启用',
  'Edit': '编辑', 'Test': '测试', 'Connection test': '连接测试',
+ 'Search connections': '搜索连接名称、类型或编号', 'All types': '全部类型', 'All statuses': '全部状态', 'Clear filters': '清除筛选',
  'Revoke this key?': '确定撤销此密钥？', 'Delete this configuration?': '确定删除此配置？',
  'Revoke': '撤销', 'Delete': '删除', 'Create': '创建',
  'Create {resource}': '创建{resource}', 'Edit {resource}': '编辑{resource}',
