@@ -13,3 +13,8 @@ admin-web/dist/
 # Machine-specific deployment and acceptance artifacts.
 compose.local.yaml
 .local/
+
+# Local deployment overrides and machine-managed access policy.
+compose.yaml
+docs/agent-access-policy.md
+deploy/admin-nginx.conf
