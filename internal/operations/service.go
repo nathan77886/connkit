@@ -226,7 +226,9 @@ func (s *Service) test(ctx context.Context, c store.Connection, cfg Settings) (a
 	case "k8s":
 		return s.http(ctx, c, cfg, "k8s_get", Input{Path: "/version"})
 	case "argo":
-		return s.argo(ctx, c, cfg, "argo_request", Input{Method: "GET", Path: "/api/v1/version"})
+		// The version endpoint is /api/version in newer Argo CD releases. Use
+		// the applications endpoint for a compatibility-safe authenticated test.
+		return s.argo(ctx, c, cfg, "argo_request", Input{Method: "GET", Path: "/api/v1/applications"})
 	case "redis":
 		return s.redis(ctx, c, cfg, "redis_test", Input{})
 	case "mongodb":

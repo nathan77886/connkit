@@ -40,6 +40,7 @@ func New(s *store.Store, username, password string) (*iris.Application, error) {
 	secured.Get("/calls", api.ListCalls)
 	secured.Post("/connections/{id:uint}/test", api.TestConnection)
 	secured.Post("/connections/{id:uint}/argo-embed", api.CreateArgoEmbed)
+	secured.Get("/connections/{id:uint}/argo", api.ArgoRequest)
 	secured.Get("/connections/{id:uint}/oauth", api.CloudflareStatus)
 	secured.Post("/connections/{id:uint}/oauth/login", api.CloudflareLogin)
 	secured.Post("/connections/{id:uint}/oauth/callback", api.CloudflareCallback)

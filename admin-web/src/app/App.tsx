@@ -1,7 +1,7 @@
 import { I18nProvider, LanguageSelect, useI18n, useFormLanguage } from '../shared/i18n';
 import { errorMessage } from '../shared/i18n/core';
-import { useEffect, useMemo, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { Alert, Button, Card, Form, Input, Message, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography } from '@arco-design/web-react';
 import { AdminShell } from '../widgets/admin-shell';
 import { request } from '../shared/api/request';
@@ -12,6 +12,48 @@ import { CloudflareAuthorization, CloudflareCallback } from '../pages/cloudflare
 type Resource = { id: number; name: string; type?: string; enabled?: boolean; allow_anonymous?: boolean; proxy_id?: number; upstream_id?: number; prefix?: string; connection_ids?: number[]; expires_at?: string; settings?: string };
 type Kind = 'connections' | 'proxies' | 'keys';
 const connectionTypes = ['ssh', 'k8s', 'argo', 'rdp', 'mongodb', 'redis', 'mysql', 'postgres', 'sqlite', 'https', 'onepanel', 'cloudflare_mcp'];
+
+type ArgoResponse = { status: number; body: string; truncated?: boolean };
+type ArgoApplication = { metadata?: { name?: string; namespace?: string }; status?: { sync?: { status?: string }; health?: { status?: string }; operationState?: { phase?: string }; }; spec?: { project?: string; destination?: { namespace?: string } } };
+
+function ArgoPage() {
+ const { t } = useI18n();
+ const { id } = useParams();
+ const navigate = useNavigate();
+ const [applications, setApplications] = useState<ArgoApplication[]>([]);
+ const [projects, setProjects] = useState<Record<string, unknown>[]>([]);
+ const [clusters, setClusters] = useState<Record<string, unknown>[]>([]);
+ const [loading, setLoading] = useState(true);
+ const [error, setError] = useState('');
+ const [active, setActive] = useState<'applications' | 'projects' | 'clusters'>('applications');
+ async function load() {
+  if (!id) return;
+  setLoading(true); setError('');
+  try {
+   const paths = ['/api/v1/applications', '/api/v1/projects', '/api/v1/clusters'];
+   const responses = await Promise.all(paths.map((path) => request.get(`/connections/${id}/argo`, { params: { path } })));
+   const parse = (response: { data: { data: ArgoResponse } }) => {
+    if (response.data.data.status < 200 || response.data.data.status >= 300) throw new Error(`Argo returned HTTP ${response.data.data.status}`);
+    return JSON.parse(response.data.data.body || '{}');
+   };
+   const [appData, projectData, clusterData] = responses.map(parse);
+   setApplications(Array.isArray(appData.items) ? appData.items : []);
+   setProjects(Array.isArray(projectData.items) ? projectData.items : []);
+   setClusters(Array.isArray(clusterData.items) ? clusterData.items : []);
+  } catch (e) { setError(errorMessage(e)); }
+  finally { setLoading(false); }
+ }
+ useEffect(() => { void load(); }, [id]);
+ const counts = { applications: applications.length, projects: projects.length, clusters: clusters.length };
+ return <div className="argo-page">
+  <div className="page-toolbar"><Space><Button onClick={() => navigate('/connections')}>← {t('Connections')}</Button><Typography.Title heading={3} style={{ margin: 0 }}>Argo CD</Typography.Title></Space><Button loading={loading} onClick={() => void load()}>刷新</Button></div>
+  {error && <Alert type="error" content={error} style={{ marginBottom: 16 }} />}
+  <div className="argo-summary">{(['applications', 'projects', 'clusters'] as const).map((key) => <Card key={key} hoverable className={active === key ? 'argo-summary-card active' : 'argo-summary-card'} onClick={() => setActive(key)}><Typography.Text type="secondary">{key === 'applications' ? 'Applications' : key[0].toUpperCase() + key.slice(1)}</Typography.Text><Typography.Title heading={2}>{counts[key]}</Typography.Title></Card>)}</div>
+  <Card title={active === 'applications' ? 'Applications' : active[0].toUpperCase() + active.slice(1)} loading={loading}>
+   {active === 'applications' ? <Table rowKey={(row) => row.metadata?.name || ''} data={applications} pagination={false} columns={[{ title: 'Name', render: (_: unknown, row: ArgoApplication) => row.metadata?.name || '-' }, { title: 'Project', render: (_: unknown, row: ArgoApplication) => row.spec?.project || '-' }, { title: 'Sync', render: (_: unknown, row: ArgoApplication) => <Tag color={row.status?.sync?.status === 'Synced' ? 'green' : 'orange'}>{row.status?.sync?.status || 'Unknown'}</Tag> }, { title: 'Health', render: (_: unknown, row: ArgoApplication) => row.status?.health?.status || 'Unknown' }, { title: 'Namespace', render: (_: unknown, row: ArgoApplication) => row.spec?.destination?.namespace || '-' }]} /> : <Table rowKey={(row) => { const item = row as Record<string, unknown>; return String((item.metadata as Record<string, unknown> | undefined)?.name || item.name || item.server || ''); }} data={active === 'projects' ? projects : clusters} pagination={false} columns={[{ title: 'Name', render: (_: unknown, row: Record<string, unknown>) => String((row.metadata as Record<string, unknown> | undefined)?.name || row.name || row.server || '-') }, { title: 'Status', render: (_: unknown, row: Record<string, unknown>) => String((row.connectionState as Record<string, unknown> | undefined)?.status || '-') }, { title: 'Details', render: (_: unknown, row: Record<string, unknown>) => String(row.server || (row.spec as Record<string, unknown> | undefined)?.sourceRepos || '') }]} />}
+  </Card>
+ </div>;
+}
 
 function Login() {
  const { t } = useI18n();
@@ -39,7 +81,6 @@ function ResourcePage({ kind }: { kind: Kind }) {
  const [editing, setEditing] = useState<Resource>();
  const [revealed, setRevealed] = useState('');
  const [oauthID, setOAuthID] = useState<number>();
- const [embedURL, setEmbedURL] = useState('');
  const [connectionQuery, setConnectionQuery] = useState('');
  const [connectionType, setConnectionType] = useState('');
  const [connectionStatus, setConnectionStatus] = useState('');
@@ -89,7 +130,7 @@ function ResourcePage({ kind }: { kind: Kind }) {
   { title: t('ID'), dataIndex: 'id', width: 70 }, { title: t('Name'), dataIndex: 'name' },
   ...(kind === 'keys' ? [{ title: t('Prefix'), dataIndex: 'prefix' }, { title: t('Connection IDs'), render: (_: unknown, row: Resource) => row.connection_ids?.join(', ') || t('None') }] : [{ title: t('Type'), dataIndex: 'type' }]),
   ...(kind !== 'proxies' ? [{ title: t('Status'), render: (_: unknown, row: Resource) => <Tag color={row.enabled ? 'green' : 'gray'}>{row.enabled ? t('Enabled') : t('Disabled')}</Tag> }] : []),
-  { title: t('Actions'), width: 390, render: (_: unknown, row: Resource) => <Space><Button size="small" onClick={() => open(row)}>{t('Edit')}</Button>{kind === 'connections' && row.type === 'argo' && <Button size="small" onClick={async () => { try { const { data } = await request.post(`/connections/${row.id}/argo-embed`, {}, { timeout: 40000 }); setEmbedURL(data.data.url); } catch (e) { Message.error(errorMessage(e)); } }}>{t('Open Argo')}</Button>}{kind === 'connections' && row.type === 'cloudflare_mcp' && <Button size="small" onClick={() => setOAuthID(row.id)}>{t('Authorize')}</Button>}{kind === 'connections' && <Button size="small" onClick={async () => { try { const { data } = await request.post(`/connections/${row.id}/test`, {}, { timeout: 40000 }); Modal.info({ title: t('Connection test'), okText: t('Done'), content: <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(data.data, null, 2)}</pre> }); } catch (e) { Message.error(errorMessage(e)); } }}>{t('Test')}</Button>}<Popconfirm title={kind === 'keys' ? t('Revoke this key?') : t('Delete this configuration?')} onOk={() => remove(row)}><Button size="small" status="danger">{kind === 'keys' ? t('Revoke') : t('Delete')}</Button></Popconfirm></Space> }
+  { title: t('Actions'), width: 390, render: (_: unknown, row: Resource) => <Space><Button size="small" onClick={() => open(row)}>{t('Edit')}</Button>{kind === 'connections' && row.type === 'argo' && <Button size="small" onClick={() => window.location.assign(`/argo/${row.id}`)}>{t('Open Argo')}</Button>}{kind === 'connections' && row.type === 'cloudflare_mcp' && <Button size="small" onClick={() => setOAuthID(row.id)}>{t('Authorize')}</Button>}{kind === 'connections' && <Button size="small" onClick={async () => { try { const { data } = await request.post(`/connections/${row.id}/test`, {}, { timeout: 40000 }); Modal.info({ title: t('Connection test'), okText: t('Done'), content: <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(data.data, null, 2)}</pre> }); } catch (e) { Message.error(errorMessage(e)); } }}>{t('Test')}</Button>}<Popconfirm title={kind === 'keys' ? t('Revoke this key?') : t('Delete this configuration?')} onOk={() => remove(row)}><Button size="small" status="danger">{kind === 'keys' ? t('Revoke') : t('Delete')}</Button></Popconfirm></Space> }
  ];
  return <Card>
   {oauthID !== undefined && <CloudflareAuthorization id={oauthID} onClose={() => setOAuthID(undefined)} />}
@@ -121,9 +162,8 @@ function ResourcePage({ kind }: { kind: Kind }) {
    </Form>
   </Modal>
   <Modal title={t('Copy your API key')} visible={Boolean(revealed)} footer={<Button type="primary" onClick={() => setRevealed('')}>{t('Done')}</Button>} onCancel={() => setRevealed('')}><Typography.Paragraph>{t('This key is shown once. Store it securely.')}</Typography.Paragraph><Input value={revealed} readOnly onFocus={(event) => event.target.select()} /></Modal>
-  <Modal title={t('Argo CD')} visible={Boolean(embedURL)} onCancel={() => setEmbedURL('')} footer={null} style={{ width: '90vw' }}><iframe src={embedURL || undefined} title="Argo CD" style={{ width: '100%', height: '70vh', border: 0 }} referrerPolicy="no-referrer" /></Modal>
  </Card>;
 }
 
-function Protected({ kind }: { kind: Kind | 'storage' | 'calls' | 'access' }) { return sessionStorage.getItem('connkit.admin.token') ? <AdminShell>{kind === 'storage' ? <StoragePage /> : kind === 'calls' ? <CallsPage /> : kind === 'access' ? <AccessPage /> : <ResourcePage key={kind} kind={kind} />}</AdminShell> : <Navigate to="/login" replace />; }
-export function App() { return <I18nProvider><BrowserRouter><Routes><Route path="/login" element={<Login />} /><Route path="/oauth/cloudflare/callback" element={<CloudflareCallback />} />{(['connections', 'proxies', 'keys', 'storage', 'calls', 'access'] as (Kind | 'storage' | 'calls' | 'access')[]).map((kind) => <Route key={kind} path={`/${kind}`} element={<Protected kind={kind} />} />)}<Route path="*" element={<Navigate to="/connections" replace />} /></Routes></BrowserRouter></I18nProvider>; }
+function Protected({ kind, children }: { kind: Kind | 'storage' | 'calls' | 'access'; children?: ReactNode }) { return sessionStorage.getItem('connkit.admin.token') ? <AdminShell>{children || (kind === 'storage' ? <StoragePage /> : kind === 'calls' ? <CallsPage /> : kind === 'access' ? <AccessPage /> : <ResourcePage key={kind} kind={kind} />)}</AdminShell> : <Navigate to="/login" replace />; }
+export function App() { return <I18nProvider><BrowserRouter><Routes><Route path="/login" element={<Login />} /><Route path="/argo/:id" element={<Protected kind="connections"><ArgoPage /></Protected>} /><Route path="/oauth/cloudflare/callback" element={<CloudflareCallback />} />{(['connections', 'proxies', 'keys', 'storage', 'calls', 'access'] as (Kind | 'storage' | 'calls' | 'access')[]).map((kind) => <Route key={kind} path={`/${kind}`} element={<Protected kind={kind} />} />)}<Route path="*" element={<Navigate to="/connections" replace />} /></Routes></BrowserRouter></I18nProvider>; }

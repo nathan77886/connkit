@@ -128,6 +128,21 @@ func (a *API) TestConnection(ctx iris.Context) {
 	respond(ctx, out)
 }
 
+// ArgoRequest serves bounded read requests to the native Argo dashboard.
+func (a *API) ArgoRequest(ctx iris.Context) {
+	id := ctx.Params().GetUintDefault("id", 0)
+	path := ctx.URLParam("path")
+	if path == "" {
+		path = "/api/v1/applications"
+	}
+	out, err := (&operations.Service{Store: a.s}).Run(ctx.Request().Context(), operations.Actor{Admin: true}, "argo_request", operations.Input{ConnectionID: id, Method: http.MethodGet, Path: path})
+	if err != nil {
+		fail(ctx, 502, err.Error())
+		return
+	}
+	respond(ctx, out)
+}
+
 // CreateArgoEmbed creates a short-lived bearer URL for the Argo UI proxy.
 func (a *API) CreateArgoEmbed(ctx iris.Context) {
 	id := ctx.Params().GetUintDefault("id", 0)
