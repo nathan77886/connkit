@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -170,6 +171,63 @@ func TestHTTPSAuthenticationRedirectAndProxyFailure(t *testing.T) {
 		t.Fatal("failed proxy fell back to direct")
 	}
 }
+
+func TestKubernetesVersionRequest(t *testing.T) {
+	s, actor, connection, _ := fixture(t)
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/version" {
+			if r.Method != http.MethodGet || r.URL.RawQuery != "" {
+				t.Errorf("unexpected Kubernetes version request: %s %s", r.Method, r.URL.RequestURI())
+			}
+		} else if r.URL.Path == "/api/v1/namespaces/default/configmaps/example" {
+			body, _ := io.ReadAll(r.Body)
+			if r.Method != http.MethodPost || string(body) != `{"data":{"key":"value"}}` || r.URL.RawQuery != "watch=true" {
+				t.Errorf("generic Kubernetes request was changed: %s %s %s", r.Method, r.URL.RequestURI(), body)
+			}
+		} else {
+			t.Errorf("unexpected Kubernetes request: %s %s", r.Method, r.URL.RequestURI())
+		}
+		if r.Header.Get("Authorization") != "Bearer k8s-token" {
+			t.Error("Kubernetes token missing")
+		}
+		_, _ = w.Write([]byte(`{"gitVersion":"v1.31.0"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := Settings{BaseURL: upstream.URL, Token: "k8s-token", CA: certificatePEM(upstream.Certificate().Raw)}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection.Type = "k8s"
+	connection.Secret, err = s.Store.Encrypt(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Store.DB.Save(&connection).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := s.Run(t.Context(), actor, "k8s_request", Input{ConnectionID: connection.ID, Path: "/version"})
+	result, ok := out.(map[string]any)
+	if err != nil || !ok || result["body"] != `{"gitVersion":"v1.31.0"}` {
+		t.Fatalf("version request: %v %v", out, err)
+	}
+	if _, err = s.Run(t.Context(), actor, "k8s_request", Input{
+		ConnectionID: connection.ID,
+		Method:       http.MethodPost,
+		Path:         "/api/v1/namespaces/default/configmaps/example?watch=true",
+		Body:         `{"data":{"key":"value"}}`,
+	}); err != nil {
+		t.Fatalf("generic Kubernetes request: %v", err)
+	}
+	for _, path := range []string{"/metrics", "/version/extra"} {
+		if _, err = s.Run(t.Context(), actor, "k8s_request", Input{ConnectionID: connection.ID, Path: path}); err == nil {
+			t.Fatalf("unsafe Kubernetes version path accepted: %s", path)
+		}
+	}
+}
+
 func TestMongoAggregationOutputStages(t *testing.T) {
 	for _, terminal := range []string{"$out", "$merge"} {
 		pipeline, err := aggregatePipeline(`[{"$match":{}},{"`+terminal+`":"target"}]`, 10)

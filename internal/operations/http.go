@@ -51,6 +51,7 @@ func (s *Service) http(ctx context.Context, c store.Connection, cfg Settings, to
 	}
 	if c.Type == "k8s" {
 		switch tool {
+		case "k8s_request":
 		case "k8s_get", "k8s_logs":
 			method = http.MethodGet
 		case "k8s_apply":
@@ -69,7 +70,7 @@ func (s *Service) http(ctx context.Context, c store.Connection, cfg Settings, to
 			return nil, errors.New("invalid Kubernetes path")
 		}
 		cleaned := path.Clean(decoded)
-		if cleaned != "/version" && !strings.HasPrefix(cleaned, "/api/") && !strings.HasPrefix(cleaned, "/apis/") {
+		if !isKubernetesAPIPath(cleaned) {
 			return nil, errors.New("kubernetes API path required")
 		}
 		for _, segment := range strings.Split(cleaned, "/") {
@@ -81,12 +82,14 @@ func (s *Service) http(ctx context.Context, c store.Connection, cfg Settings, to
 			return nil, errors.New("pod log path required")
 		}
 		q := p.Query()
-		q.Del("watch")
-		q.Del("follow")
+		if tool != "k8s_request" {
+			q.Del("watch")
+			q.Del("follow")
+		}
 		if tool == "k8s_logs" {
 			q.Set("tailLines", "200")
 			q.Set("limitBytes", "262144")
-		} else if method == http.MethodGet {
+		} else if tool == "k8s_get" && method == http.MethodGet && !isKubernetesDiscoveryPath(cleaned) {
 			q.Set("limit", "100")
 		}
 		if tool == "k8s_apply" {
@@ -169,4 +172,16 @@ func (s *Service) http(ctx context.Context, c store.Connection, cfg Settings, to
 		}
 	}
 	return map[string]any{"status": resp.StatusCode, "headers": headers, "body": body, "encoding": encoding, "truncated": truncated}, nil
+}
+
+func isKubernetesDiscoveryPath(p string) bool {
+	if p == "/version" {
+		return true
+	}
+	parts := strings.Split(strings.Trim(p, "/"), "/")
+	return (len(parts) <= 2 && parts[0] == "api") || (len(parts) <= 3 && parts[0] == "apis")
+}
+
+func isKubernetesAPIPath(p string) bool {
+	return p == "/version" || p == "/api" || p == "/apis" || strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/apis/")
 }

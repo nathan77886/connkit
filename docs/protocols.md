@@ -161,12 +161,13 @@ Find/count use `collection` and optional `filter` as an Extended JSON string. Fi
 
 Use a service-account token or client certificate configured directly. Kubeconfig executable authentication plugins are not executed.
 
-- `k8s_get`: `path`, e.g. `/api/v1/namespaces/default/pods`. List requests use a 100-resource limit; follow the server's `metadata.continue` token in a subsequent path query.
+- `k8s_request`: HTTP request through the Kubernetes connection. `method`, `path`, and `body` are passed through without read/write classification. Only Kubernetes API paths are accepted; target authentication and RBAC remain effective.
+- `k8s_get`: `path`, e.g. `/version`, `/api`, `/api/v1/namespaces/default/pods`, or `/apis`. Kubernetes discovery paths are forwarded directly; resource list requests use a 100-resource limit. Follow the server's `metadata.continue` token in a subsequent path query.
 - `k8s_logs`: exact pod `/log` path; caps tail lines and bytes, without following.
 - `k8s_apply`: exact resource path and YAML/JSON `body`; uses server-side apply with field manager `connkit`, without forcing ownership conflicts.
 - `k8s_delete`: exact resource path.
 
-Only `/api/`, `/apis/` and `/version` paths are accepted. Proxy, exec, attach and portforward subresources are rejected. Watch/follow streams are disabled. Kubernetes RBAC controls accessible namespaces, resources and verbs. The adapter returns API status and body for the caller to inspect; HTTP 403 does not count as business success even though the transport completed.
+Only `/version`, `/api`, `/api/...`, `/apis` and `/apis/...` paths are accepted. Proxy, exec, attach and portforward subresources are rejected. Watch/follow streams are disabled. Kubernetes RBAC controls accessible namespaces, resources and verbs. The adapter returns API status and body for the caller to inspect; HTTP 403 does not count as business success even though the transport completed.
 
 ## Argo CD
 
