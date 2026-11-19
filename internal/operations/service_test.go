@@ -175,16 +175,17 @@ func TestHTTPSAuthenticationRedirectAndProxyFailure(t *testing.T) {
 func TestKubernetesVersionRequest(t *testing.T) {
 	s, actor, connection, _ := fixture(t)
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/version" {
+		switch r.URL.Path {
+		case "/version":
 			if r.Method != http.MethodGet || r.URL.RawQuery != "" {
 				t.Errorf("unexpected Kubernetes version request: %s %s", r.Method, r.URL.RequestURI())
 			}
-		} else if r.URL.Path == "/api/v1/namespaces/default/configmaps/example" {
+		case "/api/v1/namespaces/default/configmaps/example":
 			body, _ := io.ReadAll(r.Body)
 			if r.Method != http.MethodPost || string(body) != `{"data":{"key":"value"}}` || r.URL.RawQuery != "watch=true" {
 				t.Errorf("generic Kubernetes request was changed: %s %s %s", r.Method, r.URL.RequestURI(), body)
 			}
-		} else {
+		default:
 			t.Errorf("unexpected Kubernetes request: %s %s", r.Method, r.URL.RequestURI())
 		}
 		if r.Header.Get("Authorization") != "Bearer k8s-token" {
