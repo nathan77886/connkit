@@ -93,7 +93,7 @@ func (s *Service) k8sExec(ctx context.Context, c store.Connection, cfg Settings,
 	defer ws.Close()
 	if in.Stdin != "" {
 		if _, err = ws.Write(append([]byte{0}, []byte(in.Stdin)...)); err != nil {
-			return nil, errors.New("Kubernetes exec stdin failed; outcome may be unknown")
+			return nil, errors.New("kubernetes exec stdin failed; outcome may be unknown")
 		}
 	}
 	var stdout, stderr, status []byte
@@ -119,7 +119,7 @@ func (s *Service) k8sExec(ctx context.Context, c store.Connection, cfg Settings,
 			if errors.Is(readErr, io.EOF) || strings.Contains(readErr.Error(), "closed") {
 				break
 			}
-			return nil, errors.New("Kubernetes exec stream interrupted; outcome may be unknown")
+			return nil, errors.New("kubernetes exec stream interrupted; outcome may be unknown")
 		}
 	}
 	out := map[string]any{"stdout": string(stdout), "stderr": string(stderr), "truncated": len(stdout) >= MaxBytes/2 || len(stderr) >= MaxBytes/2}
