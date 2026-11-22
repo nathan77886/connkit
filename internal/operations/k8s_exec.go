@@ -58,12 +58,12 @@ func (s *Service) k8sExec(ctx context.Context, c store.Connection, cfg Settings,
 	}
 	conn, err := (&route.Dialer{Store: s.Store}).DialContext(ctx, c.ProxyID, addr)
 	if err != nil {
-		return nil, errors.New("Kubernetes exec transport failed")
+		return nil, errors.New("kubernetes exec transport failed")
 	}
 	tlsConn := tls.Client(conn, tc)
 	if err = tlsConn.HandshakeContext(ctx); err != nil {
 		_ = conn.Close()
-		return nil, errors.New("Kubernetes exec TLS handshake failed")
+		return nil, errors.New("kubernetes exec TLS handshake failed")
 	}
 	closed := make(chan struct{})
 	defer close(closed)
@@ -88,7 +88,7 @@ func (s *Service) k8sExec(ctx context.Context, c store.Connection, cfg Settings,
 	ws, err := websocket.NewClient(config, tlsConn)
 	if err != nil {
 		_ = tlsConn.Close()
-		return nil, errors.New("Kubernetes exec WebSocket handshake failed")
+		return nil, errors.New("kubernetes exec WebSocket handshake failed")
 	}
 	defer ws.Close()
 	if in.Stdin != "" {
