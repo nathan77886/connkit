@@ -58,7 +58,7 @@ export const zhCN = {
  'Allowed source CIDRs': '允许的来源网段（CIDR）',
  'One CIDR per line, for example 10.0.0.0/8 or 127.0.0.1/32.': '每行一个 CIDR，例如 192.168.31.0/24 或 10.0.0.0/8。',
  'Save policy': '保存策略', 'Access policy saved': '访问策略已保存',
- 'S3-compatible cloud storage': 'S3 兼容云存储',
+ 'S3-compatible cloud storage': 'S3 兼容云存储', 'Storage profile': '存储配置 profile',
  'Stage files in a private bucket, then let the selected SSH target download and verify them. Configure AWS S3 or a compatible storage endpoint.': '文件先上传到私有存储桶，再由所选 SSH 目标下载并校验。支持 AWS S3 及兼容的存储服务。',
  'Saving storage settings invalidates outstanding upload preparations. Existing credentials are preserved when left blank.': '保存云存储配置会使尚未完成的上传准备失效。凭据字段留空时保留已有值。',
  'S3 endpoint': 'S3 服务地址', 'Region': '区域', 'Bucket': '存储桶', 'Object prefix': '对象前缀',

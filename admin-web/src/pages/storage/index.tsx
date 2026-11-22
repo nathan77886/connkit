@@ -9,6 +9,7 @@ import { request } from '../../shared/api/request';
 type Connection = { id: number; name: string; type: string; enabled: boolean };
 type Transfer = { id: string; name: string; destination: string; status: string; connection_id: number; size: number };
 type Grant = { file: Transfer; upload: { url: string; method: string; headers: Record<string, string[]> } };
+type StorageProfile = { profile: string; enabled: boolean; endpoint: string; bucket: string; prefix: string };
 
 export function StoragePage() {
  const { t } = useI18n();
@@ -17,6 +18,8 @@ export function StoragePage() {
  useFormLanguage(configForm);
  useFormLanguage(uploadForm);
  const [configured, setConfigured] = useState(false);
+ const [profiles, setProfiles] = useState<StorageProfile[]>([]);
+ const [profile, setProfile] = useState('default');
  const [saving, setSaving] = useState(false);
  const [busy, setBusy] = useState(false);
  const [phase, setPhase] = useState<MessageKey | ''>('');
@@ -27,11 +30,16 @@ export function StoragePage() {
  const active = useRef<AbortController | null>(null);
  const fileInput = useRef<HTMLInputElement | null>(null);
  async function refresh() { const response = await request.get('/files'); setTransfers(response.data.data); }
+ async function loadProfile(name: string) {
+  const response = await request.get('/storage', { params: { profile: name } });
+  setProfile(name); setConfigured(response.data.data.configured);
+  configForm.setFieldsValue(response.data.data.config || { profile: name, enabled: true, region: 'us-east-1', prefix: 'connkit', force_path_style: true, max_file_size_mb: 512 });
+ }
  useEffect(() => {
   let cancelled = false;
-  void Promise.all([request.get('/storage'), request.get('/connections'), request.get('/proxies'), request.get('/files')]).then(([storage, targets, routes, history]) => {
+  void Promise.all([request.get('/storage/profiles'), request.get('/storage'), request.get('/connections'), request.get('/proxies'), request.get('/files')]).then(([profileResponse, storage, targets, routes, history]) => {
    if (cancelled) return;
-   setConfigured(storage.data.data.configured);
+   setProfiles(profileResponse.data.data); setConfigured(storage.data.data.configured);
    configForm.setFieldsValue(storage.data.data.config || { enabled: true, region: 'us-east-1', prefix: 'connkit', force_path_style: true, max_file_size_mb: 512 });
    setConnections(targets.data.data.filter((target: Connection) => target.type === 'ssh' && target.enabled));
    setProxies(routes.data.data); setTransfers(history.data.data);
@@ -40,7 +48,7 @@ export function StoragePage() {
  }, [configForm]);
  async function save() {
   const values = await configForm.validate(); setSaving(true);
-  try { await request.put('/storage', { ...values, proxy_id: values.proxy_id || null }); setConfigured(true); configForm.setFieldsValue({ access_key: '', secret_key: '', session_token: '', clear_session_token: false }); Message.success(t('Cloud storage configuration saved')); }
+  try { await request.put('/storage', { ...values, profile, proxy_id: values.proxy_id || null }); setConfigured(true); configForm.setFieldsValue({ access_key: '', secret_key: '', session_token: '', clear_session_token: false }); const listed = await request.get('/storage/profiles'); setProfiles(listed.data.data); Message.success(t('Cloud storage configuration saved')); }
   catch (error) { Message.error(errorMessage(error)); }
   finally { setSaving(false); }
  }
@@ -55,7 +63,7 @@ export function StoragePage() {
    const reader = file.stream().getReader();
    try { while (true) { if (controller.signal.aborted) throw new Error(t('Transfer cancelled')); const chunk = await reader.read(); if (chunk.done) break; hash.update(chunk.value); } }
    finally { reader.releaseLock(); }
-   const response = await request.post('/files', { ...values, name: file.name, size: file.size, sha256: hash.digest('hex') }, { signal: controller.signal });
+   const response = await request.post('/files', { ...values, storage_profile: profile, name: file.name, size: file.size, sha256: hash.digest('hex') }, { signal: controller.signal });
    prepared = response.data.data as Grant;
    setPhase('Uploading to cloud storage');
    const headers = new Headers({ 'Content-Type': 'application/octet-stream' });
@@ -79,6 +87,7 @@ export function StoragePage() {
    <Typography.Paragraph>{t('Stage files in a private bucket, then let the selected SSH target download and verify them. Configure AWS S3 or a compatible storage endpoint.')}</Typography.Paragraph>
    {configured && <Alert type="warning" content={t('Saving storage settings invalidates outstanding upload preparations. Existing credentials are preserved when left blank.')} style={{ marginBottom: 20 }} />}
    <Form form={configForm} layout="vertical" style={{ maxWidth: 720 }}>
+    <Form.Item label={t('Storage profile')}><Select value={profile} onChange={(value) => { void loadProfile(value); }} options={Array.from(new Set(['default', ...profiles.map((item) => item.profile)])).map((value) => ({ label: value, value }))} /></Form.Item>
     <Form.Item field="enabled" label={t('Enable')} triggerPropName="checked"><Switch /></Form.Item>
     <Form.Item field="endpoint" label={t('S3 endpoint')} rules={[{ required: true }]}><Input placeholder="https://s3.us-east-1.amazonaws.com" /></Form.Item>
     <Form.Item field="region" label={t('Region')} rules={[{ required: true }]}><Input placeholder="us-east-1" /></Form.Item>

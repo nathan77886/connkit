@@ -54,6 +54,7 @@ func New(s *store.Store, username, password string) (*iris.Application, error) {
 	secured.Put("/proxies/{id:uint}", api.SaveProxy)
 	secured.Delete("/proxies/{id:uint}", api.DeleteProxy)
 	secured.Get("/storage", api.StorageConfig)
+	secured.Get("/storage/profiles", api.StorageProfiles)
 	secured.Put("/storage", api.SaveStorageConfig)
 	secured.Get("/files", api.ListFiles)
 	secured.Post("/files", api.PrepareUpload)

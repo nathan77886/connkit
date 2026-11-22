@@ -42,6 +42,16 @@ func (a *API) SaveStorageConfig(ctx iris.Context) {
 	respond(ctx, nil)
 }
 
+// StorageProfiles lists configured storage profiles without credentials.
+func (a *API) StorageProfiles(ctx iris.Context) {
+	out, err := files.New(a.s).ListProfiles(ctx.Request().Context())
+	if err != nil {
+		fail(ctx, 500, "cannot list storage profiles")
+		return
+	}
+	respond(ctx, out)
+}
+
 // PrepareUpload creates a signed upload for a registered SSH connection.
 func (a *API) PrepareUpload(ctx iris.Context) {
 	var in files.PrepareInput
