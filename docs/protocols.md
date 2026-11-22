@@ -46,7 +46,8 @@ A pinned `host_key` is required. `password` is an alternative to `private_key`; 
 - `ssh_exec`: `command` string. Returns bounded stdout/stderr, exit code and truncation flag. Arbitrary shell commands carry the permissions of the SSH account.
 - `sftp_read`: `path`; returns at most 512 KiB as base64 with a truncation flag.
 - File upload uses the separate [S3-staged transfer tools](file-transfers.md).
-- For a large ZIP batch to R2, POST the raw `application/zip` body to `/mcp/upload` with the same MCP bearer key. ConnKit spools it locally, caps it at 200 GiB, checks available disk space, and returns an asynchronous task. Poll `/mcp/upload-tasks/{id}` or call `files_upload_status` with the returned ID. The worker uploads regular ZIP entries under `prefix/task-id/entry-name` and rejects path traversal.
+- For a large ZIP batch to R2, POST the raw `application/zip` body to `/mcp/upload?profile=wanghu` with the same MCP bearer key. ConnKit spools it locally, caps it at 200 GiB, checks available disk space, and returns an asynchronous task. Poll `/mcp/upload-tasks/{id}` or call `files_upload_status` with the returned ID. The worker uploads regular ZIP entries under that profile's `prefix/task-id/entry-name` and rejects path traversal. Each profile is stored as `s3:<profile>` with independently encrypted endpoint, bucket, access key, secret key and route settings. Omitting `profile` uses the legacy `s3` default profile.
+- `files_storage_profiles` lists profile, endpoint, bucket and prefix metadata without returning credentials.
 
 `connection_test` performs SSH authentication without executing a command; its response explicitly says the operation was not tested.
 

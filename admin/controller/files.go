@@ -11,7 +11,7 @@ import (
 // StorageConfig returns non-secret fields and indicates whether credentials are configured.
 func (a *API) StorageConfig(ctx iris.Context) {
 	service := files.New(a.s)
-	c, _, err := service.LoadConfig(ctx.Request().Context())
+	c, _, err := service.LoadConfig(ctx.Request().Context(), ctx.Request().URL.Query().Get("profile"))
 	if err != nil {
 		if !errors.Is(err, files.ErrNotConfigured) {
 			fail(ctx, 500, "cannot load storage configuration")

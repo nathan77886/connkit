@@ -307,7 +307,7 @@ func TestAsyncArchiveUpload(t *testing.T) {
 	if err := zw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	task, err := service.UploadArchive(t.Context(), Actor{Admin: true}, bytes.NewReader(data.Bytes()))
+	task, err := service.UploadArchive(t.Context(), Actor{Admin: true}, "default", bytes.NewReader(data.Bytes()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,6 +335,34 @@ func TestAsyncArchiveUpload(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("archive task did not finish")
+}
+
+func TestStorageProfilesAreIndependent(t *testing.T) {
+	s := testStore(t)
+	service := New(s)
+	defaultConfig := testConfig("https://default.example")
+	defaultConfig.Profile = "default"
+	if err := service.SaveConfig(t.Context(), defaultConfig); err != nil {
+		t.Fatal(err)
+	}
+	other := testConfig("https://wanghu.example")
+	other.Profile = "wanghu"
+	other.AccessKey = "wanghu-access"
+	other.SecretKey = "wanghu-secret"
+	if err := service.SaveConfig(t.Context(), other); err != nil {
+		t.Fatal(err)
+	}
+	gotDefault, _, err := service.LoadConfig(t.Context(), "default")
+	if err != nil || gotDefault.Endpoint != defaultConfig.Endpoint || gotDefault.Profile != "default" {
+		t.Fatalf("default profile: %+v %v", gotDefault, err)
+	}
+	gotOther, _, err := service.LoadConfig(t.Context(), "wanghu")
+	if err != nil || gotOther.Endpoint != other.Endpoint || gotOther.AccessKey != other.AccessKey || gotOther.Profile != "wanghu" {
+		t.Fatalf("wanghu profile: %+v %v", gotOther, err)
+	}
+	if _, _, err = service.LoadConfig(t.Context(), "missing"); !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("missing profile error: %v", err)
+	}
 }
 
 func TestTransferAuthorizationIntegrityAndOneTimeClaim(t *testing.T) {

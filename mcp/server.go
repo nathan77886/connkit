@@ -56,6 +56,10 @@ func NewWithOperations(s *store.Store, anonymous bool, cidrs []netip.Prefix, ori
 			out, err := fileService.ArchiveStatus(ctx, actor, in.ID)
 			return nil, out, err
 		})
+		sdk.AddTool(server, &sdk.Tool{Name: "files_storage_profiles", Description: "List configured S3/R2 storage profiles without credentials."}, func(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
+			out, err := fileService.ListProfiles(ctx)
+			return nil, out, err
+		})
 		caller, _, _ := net.SplitHostPort(r.RemoteAddr)
 		registerOperations(server, s, token, anonymous, caller, ops)
 		return server
@@ -138,7 +142,7 @@ func NewWithOperations(s *store.Store, anonymous bool, cidrs []netip.Prefix, ori
 				return
 			}
 			r.Body = http.MaxBytesReader(w, r.Body, 200<<30+1)
-			task, err := fileService.UploadArchive(r.Context(), files.Actor{Token: strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), Anonymous: anonymous}, r.Body)
+			task, err := fileService.UploadArchive(r.Context(), files.Actor{Token: strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), Anonymous: anonymous}, r.URL.Query().Get("profile"), r.Body)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return

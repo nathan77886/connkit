@@ -16,18 +16,19 @@ type Setting struct {
 
 // File records an owned, single-destination staged upload, never its signed URLs.
 type File struct {
-	ID           string    `json:"id" gorm:"primaryKey"`
-	Owner        string    `json:"-" gorm:"index"`
-	ConnectionID uint      `json:"connection_id"`
-	Destination  string    `json:"destination"`
-	Name         string    `json:"name"`
-	Size         int64     `json:"size"`
-	SHA256       string    `json:"sha256"`
-	ObjectKey    string    `json:"-"`
-	ConfigDigest string    `json:"-"`
-	Status       string    `json:"status"`
-	CreatedAt    time.Time `json:"created_at"`
-	ExpiresAt    time.Time `json:"expires_at"`
+	ID             string    `json:"id" gorm:"primaryKey"`
+	Owner          string    `json:"-" gorm:"index"`
+	ConnectionID   uint      `json:"connection_id"`
+	StorageProfile string    `json:"storage_profile"`
+	Destination    string    `json:"destination"`
+	Name           string    `json:"name"`
+	Size           int64     `json:"size"`
+	SHA256         string    `json:"sha256"`
+	ObjectKey      string    `json:"-"`
+	ConfigDigest   string    `json:"-"`
+	Status         string    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+	ExpiresAt      time.Time `json:"expires_at"`
 }
 
 // Decrypt authenticates and decodes encrypted configuration without exposing ciphertext errors.

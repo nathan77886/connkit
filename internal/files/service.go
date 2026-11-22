@@ -65,6 +65,7 @@ const maxArchiveEntries = 10000
 // ArchiveUpload describes an asynchronous ZIP-to-R2 upload task.
 type ArchiveUpload struct {
 	ID        string    `json:"id"`
+	Profile   string    `json:"profile"`
 	Status    string    `json:"status"`
 	Total     int       `json:"total"`
 	Uploaded  int       `json:"uploaded"`
@@ -73,6 +74,15 @@ type ArchiveUpload struct {
 	Error     string    `json:"error,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ProfileInfo exposes storage routing metadata without credentials.
+type ProfileInfo struct {
+	Profile  string `json:"profile"`
+	Enabled  bool   `json:"enabled"`
+	Endpoint string `json:"endpoint"`
+	Bucket   string `json:"bucket"`
+	Prefix   string `json:"prefix"`
 }
 
 type archiveTask struct {
@@ -97,8 +107,8 @@ func (s *Service) taskStore() *archiveTasks {
 
 // UploadArchive stores the incoming ZIP and starts a detached upload worker.
 // The request returns after the archive is durably spooled to a local temp file.
-func (s *Service) UploadArchive(ctx context.Context, actor Actor, source io.Reader) (ArchiveUpload, error) {
-	config, _, err := s.LoadConfig(ctx)
+func (s *Service) UploadArchive(ctx context.Context, actor Actor, profile string, source io.Reader) (ArchiveUpload, error) {
+	config, _, err := s.LoadConfig(ctx, profile)
 	if err != nil {
 		return ArchiveUpload{}, err
 	}
@@ -136,7 +146,7 @@ func (s *Service) UploadArchive(ctx context.Context, actor Actor, source io.Read
 		return ArchiveUpload{}, err
 	}
 	now := time.Now()
-	task := &archiveTask{ArchiveUpload: ArchiveUpload{ID: id, Status: "queued", CreatedAt: now, UpdatedAt: now}, Owner: actor.owner(), Path: tmpPath, Prefix: strings.Trim(config.Prefix, "/"), Store: s.Store}
+	task := &archiveTask{ArchiveUpload: ArchiveUpload{ID: id, Profile: config.Profile, Status: "queued", CreatedAt: now, UpdatedAt: now}, Owner: actor.owner(), Path: tmpPath, Prefix: strings.Trim(config.Prefix, "/"), Store: s.Store}
 	m := s.taskStore()
 	m.mu.Lock()
 	m.items[id] = task
@@ -266,10 +276,30 @@ func archiveName(name string) (string, error) {
 	return clean, nil
 }
 
+func storageSettingName(profile string) string {
+	if profile == "default" {
+		return "s3"
+	}
+	return "s3:" + profile
+}
+
 // LoadConfig returns internal settings and their revision digest.
-func (s *Service) LoadConfig(ctx context.Context) (Config, string, error) {
+func (s *Service) LoadConfig(ctx context.Context, requested ...string) (Config, string, error) {
+	profile := "default"
+	if len(requested) > 0 && requested[0] != "" {
+		profile = requested[0]
+	}
+	var err error
+	profile, err = normalizeProfile(profile)
+	if err != nil {
+		return Config{}, "", err
+	}
 	var row store.Setting
-	if err := s.Store.DB.WithContext(ctx).First(&row, "name = ?", "s3").Error; err != nil {
+	if err = s.Store.DB.WithContext(ctx).First(&row, "name = ?", storageSettingName(profile)).Error; err != nil && profile == "default" {
+		// Read legacy/default settings written before profiles were introduced.
+		err = s.Store.DB.WithContext(ctx).First(&row, "name = ?", "s3").Error
+	}
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return Config{}, "", ErrNotConfigured
 		}
@@ -279,12 +309,16 @@ func (s *Service) LoadConfig(ctx context.Context) (Config, string, error) {
 	if err := s.Store.Decrypt(row.Secret, &config); err != nil {
 		return Config{}, "", err
 	}
+	config.Profile = profile
 	return config, store.Digest(row.Secret), nil
 }
 
 // SaveConfig preserves omitted credentials, keeping secrets out of configuration responses.
 func (s *Service) SaveConfig(ctx context.Context, c Config) error {
-	old, _, err := s.LoadConfig(ctx)
+	if c.Profile == "" {
+		c.Profile = "default"
+	}
+	old, _, err := s.LoadConfig(ctx, c.Profile)
 	if err != nil && !errors.Is(err, ErrNotConfigured) {
 		return err
 	}
@@ -320,16 +354,38 @@ func (s *Service) SaveConfig(ctx context.Context, c Config) error {
 	if err != nil {
 		return err
 	}
-	return s.Store.DB.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "name"}}, DoUpdates: clause.AssignmentColumns([]string{"secret", "updated_at"})}).Create(&store.Setting{Name: "s3", Secret: secret, UpdatedAt: time.Now()}).Error
+	return s.Store.DB.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "name"}}, DoUpdates: clause.AssignmentColumns([]string{"secret", "updated_at"})}).Create(&store.Setting{Name: storageSettingName(c.Profile), Secret: secret, UpdatedAt: time.Now()}).Error
+}
+
+// ListProfiles returns configured storage profiles without exposing secrets.
+func (s *Service) ListProfiles(ctx context.Context) ([]ProfileInfo, error) {
+	var rows []store.Setting
+	if err := s.Store.DB.WithContext(ctx).Where("name = ? OR name LIKE ?", "s3", "s3:%").Order("name").Find(&rows).Error; err != nil {
+		return nil, errors.New("cannot list storage profiles")
+	}
+	out := make([]ProfileInfo, 0, len(rows))
+	for _, row := range rows {
+		profile := "default"
+		if row.Name != "s3" {
+			profile = strings.TrimPrefix(row.Name, "s3:")
+		}
+		var config Config
+		if err := s.Store.Decrypt(row.Secret, &config); err != nil {
+			return nil, err
+		}
+		out = append(out, ProfileInfo{Profile: profile, Enabled: config.Enabled, Endpoint: config.Endpoint, Bucket: config.Bucket, Prefix: config.Prefix})
+	}
+	return out, nil
 }
 
 // PrepareInput binds an upload to one authorized SSH target and absolute destination.
 type PrepareInput struct {
-	ConnectionID uint   `json:"connection_id"`
-	Name         string `json:"name"`
-	Destination  string `json:"destination"`
-	Size         int64  `json:"size"`
-	SHA256       string `json:"sha256"`
+	ConnectionID   uint   `json:"connection_id"`
+	StorageProfile string `json:"storage_profile,omitempty"`
+	Name           string `json:"name"`
+	Destination    string `json:"destination"`
+	Size           int64  `json:"size"`
+	SHA256         string `json:"sha256"`
 }
 
 // Prepared contains the record and a temporary, object-specific PUT grant.
@@ -347,7 +403,7 @@ func (s *Service) Prepare(ctx context.Context, actor Actor, in PrepareInput) (Pr
 	if err != nil || len(hash) != 32 || in.Size <= 0 || in.Name == "" || in.Name == "." || in.Name == ".." || strings.Contains(in.Name, "/") || path.Base(in.Name) != in.Name || strings.ContainsAny(in.Name, "\\\r\n\x00") || len(in.Name) > 255 || !validDestination(in.Destination) || len(in.Destination) > 4096 || strings.ContainsAny(in.Destination, "\r\n\x00") {
 		return Prepared{}, errors.New("valid name, positive size, SHA-256 and absolute destination required")
 	}
-	config, revision, err := s.LoadConfig(ctx)
+	config, revision, err := s.LoadConfig(ctx, in.StorageProfile)
 	if err != nil {
 		return Prepared{}, err
 	}
@@ -361,7 +417,7 @@ func (s *Service) Prepare(ctx context.Context, actor Actor, in PrepareInput) (Pr
 	if err != nil {
 		return Prepared{}, err
 	}
-	file := store.File{ID: id, Owner: actor.owner(), ConnectionID: in.ConnectionID, Destination: in.Destination, Name: in.Name, Size: in.Size, SHA256: strings.ToLower(in.SHA256), ObjectKey: config.Prefix + "/" + id + "/" + in.Name, ConfigDigest: revision, Status: "prepared", ExpiresAt: time.Now().Add(24 * time.Hour)}
+	file := store.File{ID: id, Owner: actor.owner(), ConnectionID: in.ConnectionID, StorageProfile: config.Profile, Destination: in.Destination, Name: in.Name, Size: in.Size, SHA256: strings.ToLower(in.SHA256), ObjectKey: config.Prefix + "/" + id + "/" + in.Name, ConfigDigest: revision, Status: "prepared", ExpiresAt: time.Now().Add(24 * time.Hour)}
 	cloud, err := s.cloud(ctx, s.Store, config)
 	if err != nil {
 		return Prepared{}, err
@@ -425,7 +481,7 @@ func (s *Service) Deliver(ctx context.Context, actor Actor, id string) (store.Fi
 	if !time.Now().Before(file.ExpiresAt) {
 		return file, errors.New("transfer expired")
 	}
-	config, revision, err := s.LoadConfig(ctx)
+	config, revision, err := s.LoadConfig(ctx, file.StorageProfile)
 	if err != nil {
 		return file, err
 	}
@@ -479,7 +535,7 @@ func (s *Service) Remove(ctx context.Context, actor Actor, id string) error {
 	if file.Status == "delivering" {
 		return errors.New("transfer is running")
 	}
-	config, revision, err := s.LoadConfig(ctx)
+	config, revision, err := s.LoadConfig(ctx, file.StorageProfile)
 	if err != nil {
 		return err
 	}

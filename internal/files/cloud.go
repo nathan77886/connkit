@@ -20,6 +20,7 @@ import (
 
 // Config configures one S3-compatible staging bucket. Credentials are encrypted at rest.
 type Config struct {
+	Profile           string `json:"profile,omitempty"`
 	ClearSessionToken bool   `json:"clear_session_token,omitempty"`
 	Enabled           bool   `json:"enabled"`
 	Endpoint          string `json:"endpoint"`
@@ -35,8 +36,23 @@ type Config struct {
 	MaxFileSizeMB     int64  `json:"max_file_size_mb"`
 }
 
+func normalizeProfile(value string) (string, error) {
+	if value == "" {
+		return "default", nil
+	}
+	if len(value) > 64 || value == "." || value == ".." || path.Clean(value) != value || strings.ContainsAny(value, "/\\\r\n\x00") {
+		return "", errors.New("invalid storage profile")
+	}
+	return value, nil
+}
+
 // Normalize validates an explicitly configured endpoint; no ambient AWS credentials are used.
 func (c *Config) Normalize() error {
+	profile, err := normalizeProfile(c.Profile)
+	if err != nil {
+		return err
+	}
+	c.Profile = profile
 	if c.Region == "" {
 		c.Region = "us-east-1"
 	}
