@@ -61,6 +61,12 @@ type Status struct {
 	Refreshable bool      `json:"refreshable"`
 }
 
+// BatchCall is one upstream Cloudflare MCP tool invocation in a batch.
+type BatchCall struct {
+	Tool      string          `json:"tool_name"`
+	Arguments json.RawMessage `json:"tool_arguments"`
+}
+
 func name(kind string, id uint) string {
 	return "cloudflare_mcp:" + kind + ":" + strconv.FormatUint(uint64(id), 10)
 }
@@ -483,4 +489,53 @@ func (s *Service) Run(ctx context.Context, c store.Connection, action, tool stri
 		return nil, errors.New("cloudflare MCP tool call failed; outcome may be unknown, do not retry automatically")
 	}
 	return out, nil
+}
+
+// RunBatch forwards several Cloudflare MCP calls over one authenticated
+// session. Calls are kept ordered so callers can use a batch for dependent
+// operations and can inspect each upstream result independently.
+func (s *Service) RunBatch(ctx context.Context, c store.Connection, calls []BatchCall) ([]*sdk.CallToolResult, error) {
+	if len(calls) == 0 || len(calls) > 100 {
+		return nil, errors.New("one to one hundred Cloudflare tool calls required")
+	}
+	var total int
+	for i := range calls {
+		if calls[i].Tool == "" {
+			return nil, errors.New("batch tool name required")
+		}
+		if len(calls[i].Arguments) == 0 {
+			calls[i].Arguments = json.RawMessage(`{}`)
+		}
+		var object map[string]json.RawMessage
+		if len(calls[i].Arguments) > 512*1024 || json.Unmarshal(calls[i].Arguments, &object) != nil || object == nil {
+			return nil, errors.New("batch tool arguments must be JSON objects within the size limit")
+		}
+		total += len(calls[i].Arguments)
+	}
+	if total > 2*1024*1024 {
+		return nil, errors.New("batch tool arguments exceed 2 MiB")
+	}
+	access, err := s.accessToken(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	client, closeClient := s.client(s.Store, c)
+	defer closeClient()
+	client.Transport = bearerTransport{base: client.Transport, token: access}
+	session, err := sdk.NewClient(&sdk.Implementation{Name: "connkit", Version: "0.1.0"}, nil).Connect(ctx, &sdk.StreamableClientTransport{
+		Endpoint: s.endpointURL(), HTTPClient: client, MaxRetries: -1, DisableStandaloneSSE: true, MaxEventSize: 1 << 20,
+	}, nil)
+	if err != nil {
+		return nil, errors.New("cloudflare MCP connection failed; check authorization and route")
+	}
+	defer session.Close()
+	results := make([]*sdk.CallToolResult, 0, len(calls))
+	for _, call := range calls {
+		result, callErr := session.CallTool(ctx, &sdk.CallToolParams{Name: call.Tool, Arguments: call.Arguments})
+		if callErr != nil {
+			return nil, errors.New("cloudflare MCP batch call failed; outcome may be unknown, do not retry automatically")
+		}
+		results = append(results, result)
+	}
+	return results, nil
 }

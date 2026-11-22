@@ -233,6 +233,36 @@ func TestOAuthLifecycleAndMCP(t *testing.T) {
 	}
 }
 
+func TestBatchCallUsesOneSessionAndPreservesOrder(t *testing.T) {
+	f := newFixture(t)
+	f.authorize(t)
+	before := f.calls.Load()
+	results, err := f.s.RunBatch(t.Context(), f.c, []BatchCall{
+		{Tool: "execute", Arguments: json.RawMessage(`{"code":"first"}`)},
+		{Tool: "execute", Arguments: json.RawMessage(`{"code":"second"}`)},
+	})
+	if err != nil || len(results) != 2 {
+		t.Fatalf("batch: %v %#v", err, results)
+	}
+	if f.calls.Load()-before != 2 {
+		t.Fatalf("upstream calls: %d", f.calls.Load()-before)
+	}
+	for i, want := range []string{"first", "second"} {
+		if len(results[i].Content) != 1 || results[i].Content[0].(*sdk.TextContent).Text != "{\"code\":\""+want+"\"}" {
+			t.Fatalf("result %d: %#v", i, results[i])
+		}
+	}
+	if _, err = f.s.RunBatch(t.Context(), f.c, nil); err == nil {
+		t.Fatal("empty batch accepted")
+	}
+	if _, err = f.s.RunBatch(t.Context(), f.c, []BatchCall{{Tool: "execute", Arguments: json.RawMessage(`[]`)}}); err == nil {
+		t.Fatal("non-object arguments accepted")
+	}
+	if _, err = f.s.RunBatch(t.Context(), f.c, []BatchCall{{Arguments: json.RawMessage(`{}`)}}); err == nil {
+		t.Fatal("empty tool name accepted")
+	}
+}
+
 func TestRefreshIsPersistedAcrossServiceInstances(t *testing.T) {
 	f := newFixture(t)
 	f.authorize(t)

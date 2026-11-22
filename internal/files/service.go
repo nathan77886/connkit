@@ -1,6 +1,7 @@
 package files
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
@@ -15,9 +16,13 @@ import (
 	"gorm.io/gorm/clause"
 	"io"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 	"unicode/utf16"
 )
@@ -46,10 +51,220 @@ type Service struct {
 	Store   *store.Store
 	cloud   func(context.Context, *store.Store, Config) (Cloud, error)
 	deliver func(context.Context, *store.Store, store.Connection, store.File, string) error
+	tasks   *archiveTasks
 }
 
 // New constructs the S3 and SSH implementation.
-func New(s *store.Store) *Service { return &Service{Store: s, cloud: newCloud, deliver: deliverSSH} }
+func New(s *store.Store) *Service {
+	return &Service{Store: s, cloud: newCloud, deliver: deliverSSH, tasks: &archiveTasks{items: make(map[string]*archiveTask)}}
+}
+
+const maxArchiveBytes = int64(200 << 30)
+const maxArchiveEntries = 10000
+
+// ArchiveUpload describes an asynchronous ZIP-to-R2 upload task.
+type ArchiveUpload struct {
+	ID        string    `json:"id"`
+	Status    string    `json:"status"`
+	Total     int       `json:"total"`
+	Uploaded  int       `json:"uploaded"`
+	Failed    int       `json:"failed"`
+	Bytes     int64     `json:"bytes"`
+	Error     string    `json:"error,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type archiveTask struct {
+	ArchiveUpload
+	Owner  string
+	Path   string
+	Prefix string
+	Store  *store.Store
+}
+
+type archiveTasks struct {
+	mu    sync.RWMutex
+	items map[string]*archiveTask
+}
+
+func (s *Service) taskStore() *archiveTasks {
+	if s.tasks == nil {
+		s.tasks = &archiveTasks{items: make(map[string]*archiveTask)}
+	}
+	return s.tasks
+}
+
+// UploadArchive stores the incoming ZIP and starts a detached upload worker.
+// The request returns after the archive is durably spooled to a local temp file.
+func (s *Service) UploadArchive(ctx context.Context, actor Actor, source io.Reader) (ArchiveUpload, error) {
+	config, _, err := s.LoadConfig(ctx)
+	if err != nil {
+		return ArchiveUpload{}, err
+	}
+	if !config.Enabled {
+		return ArchiveUpload{}, errors.New("S3 storage is disabled")
+	}
+	tmp, err := os.CreateTemp("", "connkit-r2-*.zip")
+	if err != nil {
+		return ArchiveUpload{}, errors.New("cannot create archive spool")
+	}
+	tmpPath := tmp.Name()
+	cleanup := func() { _ = tmp.Close(); _ = os.Remove(tmpPath) }
+	limited := io.LimitReader(source, maxArchiveBytes+1)
+	if _, err = io.Copy(tmp, limited); err != nil {
+		cleanup()
+		return ArchiveUpload{}, errors.New("cannot spool archive")
+	}
+	if err = tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return ArchiveUpload{}, errors.New("cannot finalize archive spool")
+	}
+	info, err := os.Stat(tmpPath)
+	if err != nil || info.Size() == 0 || info.Size() > maxArchiveBytes {
+		_ = os.Remove(tmpPath)
+		return ArchiveUpload{}, errors.New("archive must be non-empty and at most 200 GiB")
+	}
+	var stat syscall.Statfs_t
+	if err = syscall.Statfs(filepath.Dir(tmpPath), &stat); err != nil || uint64(info.Size()) > stat.Bavail*uint64(stat.Bsize) {
+		_ = os.Remove(tmpPath)
+		return ArchiveUpload{}, errors.New("insufficient local disk space for archive")
+	}
+	id, _, err := store.Token("r2task_")
+	if err != nil {
+		_ = os.Remove(tmpPath)
+		return ArchiveUpload{}, err
+	}
+	now := time.Now()
+	task := &archiveTask{ArchiveUpload: ArchiveUpload{ID: id, Status: "queued", CreatedAt: now, UpdatedAt: now}, Owner: actor.owner(), Path: tmpPath, Prefix: strings.Trim(config.Prefix, "/"), Store: s.Store}
+	m := s.taskStore()
+	m.mu.Lock()
+	m.items[id] = task
+	out := task.snapshot()
+	m.mu.Unlock()
+	go s.runArchive(task, config)
+	return out, nil
+}
+
+func (t *archiveTask) snapshot() ArchiveUpload {
+	return t.ArchiveUpload
+}
+
+func (s *Service) ArchiveStatus(ctx context.Context, actor Actor, id string) (ArchiveUpload, error) {
+	m := s.taskStore()
+	m.mu.RLock()
+	task, ok := m.items[id]
+	var out ArchiveUpload
+	if ok {
+		out = task.snapshot()
+	}
+	m.mu.RUnlock()
+	if !ok || task.Owner != actor.owner() {
+		return ArchiveUpload{}, errors.New("upload task not found")
+	}
+	return out, nil
+}
+
+func (s *Service) runArchive(task *archiveTask, config Config) {
+	set := func(fn func(*ArchiveUpload)) {
+		s.taskStore().mu.Lock()
+		fn(&task.ArchiveUpload)
+		task.UpdatedAt = time.Now()
+		s.taskStore().mu.Unlock()
+	}
+	set(func(v *ArchiveUpload) { v.Status = "running" })
+	f, err := os.Open(task.Path)
+	if err == nil {
+		defer f.Close()
+	}
+	if err != nil {
+		set(func(v *ArchiveUpload) { v.Status, v.Error = "failed", "cannot open archive" })
+		return
+	}
+	reader, err := zip.NewReader(f, fileSize(f))
+	if err != nil {
+		set(func(v *ArchiveUpload) { v.Status, v.Error = "failed", "invalid ZIP archive" })
+		_ = os.Remove(task.Path)
+		return
+	}
+	if len(reader.File) == 0 || len(reader.File) > maxArchiveEntries {
+		set(func(v *ArchiveUpload) { v.Status, v.Error = "failed", "archive entry count exceeds limit" })
+		_ = os.Remove(task.Path)
+		return
+	}
+	set(func(v *ArchiveUpload) { v.Total = countArchiveFiles(reader.File) })
+	cloud, err := s.cloud(context.Background(), s.Store, config)
+	uploader, ok := cloud.(archiveUploader)
+	if err != nil || !ok {
+		set(func(v *ArchiveUpload) { v.Status, v.Error = "failed", "archive upload is unavailable" })
+		_ = os.Remove(task.Path)
+		return
+	}
+	maxObjectBytes := config.MaxFileSizeMB * 1024 * 1024
+	if maxObjectBytes <= 0 {
+		maxObjectBytes = 512 * 1024 * 1024
+	}
+	for _, entry := range reader.File {
+		if entry.FileInfo().IsDir() {
+			continue
+		}
+		name, err := archiveName(entry.Name)
+		if err != nil || entry.UncompressedSize64 > uint64(maxObjectBytes) {
+			set(func(v *ArchiveUpload) { v.Failed++ })
+			continue
+		}
+		body, err := entry.Open()
+		if err != nil {
+			set(func(v *ArchiveUpload) { v.Failed++ })
+			continue
+		}
+		key := task.Prefix + "/" + task.ID + "/" + name
+		err = uploader.Upload(context.Background(), key, body, int64(entry.UncompressedSize64))
+		_ = body.Close()
+		if err != nil {
+			set(func(v *ArchiveUpload) { v.Failed++ })
+			continue
+		}
+		set(func(v *ArchiveUpload) { v.Uploaded++; v.Bytes += int64(entry.UncompressedSize64) })
+	}
+	set(func(v *ArchiveUpload) {
+		if v.Failed > 0 {
+			v.Status, v.Error = "failed", "one or more archive entries failed"
+		} else {
+			v.Status = "completed"
+		}
+	})
+	_ = os.Remove(task.Path)
+}
+
+func fileSize(f *os.File) int64 {
+	info, err := f.Stat()
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+func countArchiveFiles(entries []*zip.File) int {
+	n := 0
+	for _, entry := range entries {
+		if !entry.FileInfo().IsDir() {
+			n++
+		}
+	}
+	return n
+}
+
+func archiveName(name string) (string, error) {
+	if name == "" || strings.ContainsAny(name, "\\\x00\r\n") || path.IsAbs(name) {
+		return "", errors.New("invalid archive name")
+	}
+	clean := path.Clean(name)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", errors.New("archive path escapes prefix")
+	}
+	return clean, nil
+}
 
 // LoadConfig returns internal settings and their revision digest.
 func (s *Service) LoadConfig(ctx context.Context) (Config, string, error) {

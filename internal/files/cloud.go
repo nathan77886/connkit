@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/nathan77886/connkit/internal/route"
 	"github.com/nathan77886/connkit/internal/store"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -84,6 +85,10 @@ type s3Cloud struct {
 	bucket string
 }
 
+type archiveUploader interface {
+	Upload(context.Context, string, io.Reader, int64) error
+}
+
 func newCloud(_ context.Context, s *store.Store, c Config) (Cloud, error) {
 	transport := &http.Transport{DialContext: func(ctx context.Context, network, address string) (netConn net.Conn, err error) {
 		return (&route.Dialer{Store: s}).DialContext(ctx, c.ProxyID, address)
@@ -107,6 +112,13 @@ func (c *s3Cloud) SignPut(ctx context.Context, key string, size int64) (UploadGr
 	headers := result.SignedHeader.Clone()
 	headers.Del("Host")
 	return UploadGrant{URL: result.URL, Method: result.Method, Headers: headers, ExpiresAt: time.Now().Add(ttl)}, nil
+}
+func (c *s3Cloud) Upload(ctx context.Context, key string, body io.Reader, size int64) error {
+	_, err := c.client.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(c.bucket), Key: aws.String(key), Body: body, ContentLength: aws.Int64(size), ContentType: aws.String("application/octet-stream")})
+	if err != nil {
+		return errors.New("cloud archive object upload failed")
+	}
+	return nil
 }
 func (c *s3Cloud) Size(ctx context.Context, key string) (int64, error) {
 	result, err := c.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(c.bucket), Key: aws.String(key)})

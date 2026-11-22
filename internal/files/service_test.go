@@ -1,6 +1,7 @@
 package files
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/ed25519"
@@ -268,6 +269,73 @@ func (f *fakeCloud) SignGet(context.Context, string) (string, error) {
 	return "https://storage.example/download?temporary=secret", nil
 }
 func (f *fakeCloud) Delete(context.Context, string) error { return nil }
+
+type archiveFakeCloud struct {
+	fakeCloud
+	mu      sync.Mutex
+	objects map[string]string
+}
+
+func (f *archiveFakeCloud) Upload(_ context.Context, key string, body io.Reader, _ int64) error {
+	b, err := io.ReadAll(body)
+	if err != nil {
+		return err
+	}
+	f.mu.Lock()
+	f.objects[key] = string(b)
+	f.mu.Unlock()
+	return nil
+}
+
+func TestAsyncArchiveUpload(t *testing.T) {
+	s := testStore(t)
+	cloud := &archiveFakeCloud{objects: map[string]string{}}
+	service := New(s)
+	service.cloud = func(context.Context, *store.Store, Config) (Cloud, error) { return cloud, nil }
+	if err := service.SaveConfig(t.Context(), testConfig("https://storage.example")); err != nil {
+		t.Fatal(err)
+	}
+	var data bytes.Buffer
+	zw := zip.NewWriter(&data)
+	for name, content := range map[string]string{"a.txt": "one", "dir/b.txt": "two"} {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write([]byte(content))
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	task, err := service.UploadArchive(t.Context(), Actor{Admin: true}, bytes.NewReader(data.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		status, err := service.ArchiveStatus(t.Context(), Actor{Admin: true}, task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status.Status == "completed" {
+			if status.Total != 2 || status.Uploaded != 2 || status.Failed != 0 || status.Bytes != 6 {
+				t.Fatalf("unexpected status: %+v", status)
+			}
+			cloud.mu.Lock()
+			count := len(cloud.objects)
+			cloud.mu.Unlock()
+			if count != 2 {
+				t.Fatalf("uploaded object count: %d", count)
+			}
+			return
+		}
+		if status.Status == "failed" {
+			t.Fatalf("archive failed: %+v", status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("archive task did not finish")
+}
 
 func TestTransferAuthorizationIntegrityAndOneTimeClaim(t *testing.T) {
 	s := testStore(t)

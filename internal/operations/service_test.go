@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/nathan77886/connkit/internal/store"
+	"golang.org/x/net/websocket"
 )
 
 func fixture(t *testing.T) (*Service, Actor, store.Connection, string) {
@@ -226,6 +227,53 @@ func TestKubernetesVersionRequest(t *testing.T) {
 		if _, err = s.Run(t.Context(), actor, "k8s_request", Input{ConnectionID: connection.ID, Path: path}); err == nil {
 			t.Fatalf("unsafe Kubernetes version path accepted: %s", path)
 		}
+	}
+}
+
+func TestKubernetesExecWebSocket(t *testing.T) {
+	s, actor, connection, _ := fixture(t)
+	upstream := httptest.NewTLSServer(websocket.Server{Handshake: func(config *websocket.Config, _ *http.Request) error {
+		config.Protocol = []string{"v5.channel.k8s.io"}
+		return nil
+	}, Handler: websocket.Handler(func(ws *websocket.Conn) {
+		if ws.Request().URL.Path != "/api/v1/namespaces/default/pods/demo/exec" {
+			t.Errorf("unexpected exec path: %s", ws.Request().URL.Path)
+		}
+		if ws.Request().URL.Query().Get("command") != "sh" || ws.Request().URL.Query()["command"][1] != "-c" {
+			t.Errorf("unexpected command query: %v", ws.Request().URL.Query()["command"])
+		}
+		if ws.Request().Header.Get("Authorization") != "Bearer exec-token" {
+			t.Error("exec authorization missing")
+		}
+		ws.PayloadType = websocket.BinaryFrame
+		_, _ = ws.Write(append([]byte{1}, []byte("hello\n")...))
+		_, _ = ws.Write(append([]byte{2}, []byte("warning\n")...))
+		_, _ = ws.Write(append([]byte{3}, []byte(`{"status":"Success"}`)...))
+	})})
+	defer upstream.Close()
+	cfg := Settings{BaseURL: upstream.URL + "/", Token: "exec-token", CA: certificatePEM(upstream.Certificate().Raw)}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection.Type = "k8s"
+	connection.Secret, err = s.Store.Encrypt(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Store.DB.Save(&connection).Error; err != nil {
+		t.Fatal(err)
+	}
+	out, err := s.Run(t.Context(), actor, "k8s_exec", Input{ConnectionID: connection.ID, Namespace: "default", Pod: "demo", Container: "app", Command: "sh", Args: []string{"-c", "printf hello"}})
+	if err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+	result := out.(map[string]any)
+	if result["stdout"] != "hello\n" || result["stderr"] != "warning\n" {
+		t.Fatalf("unexpected exec output: %#v", result)
+	}
+	if _, err = s.Run(t.Context(), actor, "k8s_exec", Input{ConnectionID: connection.ID, Namespace: "default", Pod: "../escape", Command: "sh"}); err == nil {
+		t.Fatal("path traversal accepted")
 	}
 }
 

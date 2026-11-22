@@ -37,7 +37,7 @@ The console supports Simplified Chinese and English, follows the browser languag
 ### Connection types
 
 - **SSH:** File delivery through S3-compatible storage, with target-side download and SHA-256 verification. Remote commands and bounded SFTP reads are available.
-- **Kubernetes:** Resource inspection, bounded logs, server-side apply and delete. Exec/streaming operations remain planned.
+- **Kubernetes:** Resource inspection, bounded logs, server-side apply and delete, plus pod command execution over the Kubernetes exec WebSocket. Execution remains governed by Kubernetes RBAC.
 - **RDP:** Remote desktop sessions, screenshots, and keyboard/mouse input.
 - **MongoDB:** Collection discovery, document queries, aggregation, and authorized writes.
 - **Redis:** Key scanning, data access, and authorized commands.

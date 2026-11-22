@@ -13,7 +13,7 @@
 
 Admin provides encrypted connection/proxy configuration, key editing/enabling/revocation, connection tests, live anonymous CIDR policy, metadata-only call history, and cloud staging management. MCP provides SQL, SSH/SFTP, Redis, MongoDB, HTTPS and Kubernetes resource operations plus S3-staged file delivery. See [protocol settings and tools](protocols.md) and [file transfers](file-transfers.md) for exact capabilities and configuration.
 
-RDP and Kubernetes streaming operations remain unimplemented. Protocol settings use JSON rather than dedicated forms; validation occurs when operations are invoked. Real target/cloud acceptance is required before deployment.
+RDP streaming operations remain unimplemented. Kubernetes pod exec is implemented over the exec WebSocket; port-forward and watch streams remain unimplemented. Protocol settings use JSON rather than dedicated forms; validation occurs when operations are invoked. Real target/cloud acceptance is required before deployment.
 
 ## Local development
 

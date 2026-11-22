@@ -51,6 +51,8 @@ func (s *Service) http(ctx context.Context, c store.Connection, cfg Settings, to
 	}
 	if c.Type == "k8s" {
 		switch tool {
+		case "k8s_exec":
+			return s.k8sExec(ctx, c, cfg, in)
 		case "k8s_request":
 		case "k8s_get", "k8s_logs":
 			method = http.MethodGet

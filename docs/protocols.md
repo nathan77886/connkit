@@ -46,6 +46,7 @@ A pinned `host_key` is required. `password` is an alternative to `private_key`; 
 - `ssh_exec`: `command` string. Returns bounded stdout/stderr, exit code and truncation flag. Arbitrary shell commands carry the permissions of the SSH account.
 - `sftp_read`: `path`; returns at most 512 KiB as base64 with a truncation flag.
 - File upload uses the separate [S3-staged transfer tools](file-transfers.md).
+- For a large ZIP batch to R2, POST the raw `application/zip` body to `/mcp/upload` with the same MCP bearer key. ConnKit spools it locally, caps it at 200 GiB, checks available disk space, and returns an asynchronous task. Poll `/mcp/upload-tasks/{id}` or call `files_upload_status` with the returned ID. The worker uploads regular ZIP entries under `prefix/task-id/entry-name` and rejects path traversal.
 
 `connection_test` performs SSH authentication without executing a command; its response explicitly says the operation was not tested.
 
@@ -95,6 +96,7 @@ Credentials, refresh tokens and pending flows are encrypted in ConnKit's shared 
 | --- | --- |
 | `cloudflare_tools` | `connection_id`, optional `page_cursor`; returns upstream tool schemas and `nextCursor` |
 | `cloudflare_call` | `connection_id`, `tool_name`, `tool_arguments` (JSON object); returns the upstream MCP result, including `isError` |
+| `cloudflare_batch_call` | `connection_id`, `calls` (1–100 ordered entries with `tool_name` and `tool_arguments` JSON objects); forwards them over one authenticated session and returns one upstream result per entry |
 | `connection_test` | Initializes the official MCP and lists tools using saved OAuth credentials |
 
 MCP tool calls use the connection's saved OAuth grant without additional write/execute flags. The calling agent follows the user's task scope; upstream Cloudflare account/product permissions still apply. Existing connection grants, anonymous-listener policy, time/output bounds and metadata-only call audit still apply. Credentials, code and arguments are not recorded in the audit. Remote calls and token exchanges are not retried automatically. Expired or revoked grants require renewed browser authorization if refresh fails.
@@ -164,10 +166,11 @@ Use a service-account token or client certificate configured directly. Kubeconfi
 - `k8s_request`: HTTP request through the Kubernetes connection. `method`, `path`, and `body` are passed through without read/write classification. Only Kubernetes API paths are accepted; target authentication and RBAC remain effective.
 - `k8s_get`: `path`, e.g. `/version`, `/api`, `/api/v1/namespaces/default/pods`, or `/apis`. Kubernetes discovery paths are forwarded directly; resource list requests use a 100-resource limit. Follow the server's `metadata.continue` token in a subsequent path query.
 - `k8s_logs`: exact pod `/log` path; caps tail lines and bytes, without following.
+- `k8s_exec`: execute `command` plus optional `args` in a pod using the Kubernetes exec WebSocket. Requires `namespace`, `pod`, and `command`; optional `container`, `stdin`, and `tty` are supported. Output is bounded and separated into stdout/stderr; Kubernetes RBAC remains effective and ConnKit does not apply an additional execution flag.
 - `k8s_apply`: exact resource path and YAML/JSON `body`; uses server-side apply with field manager `connkit`, without forcing ownership conflicts.
 - `k8s_delete`: exact resource path.
 
-Only `/version`, `/api`, `/api/...`, `/apis` and `/apis/...` paths are accepted. Proxy, exec, attach and portforward subresources are rejected. Watch/follow streams are disabled. Kubernetes RBAC controls accessible namespaces, resources and verbs. The adapter returns API status and body for the caller to inspect; HTTP 403 does not count as business success even though the transport completed.
+Only `/version`, `/api`, `/api/...`, `/apis` and `/apis/...` paths are accepted for HTTP resource operations. Proxy, attach and portforward subresources are rejected there; `k8s_exec` uses only the pod exec WebSocket endpoint. Watch/follow streams are disabled for HTTP operations. Kubernetes RBAC controls accessible namespaces, resources and verbs. The adapter returns API status and body for the caller to inspect; HTTP 403 does not count as business success even though the transport completed.
 
 ## Argo CD
 
@@ -230,7 +233,7 @@ Every MCP tool call persists actor/key ID, connection ID (where supplied/resolva
 
 ## Remaining work and verification boundary
 
-Kubernetes exec/port-forward/watch, MongoDB SRV, Redis Cluster/Sentinel, structured protocol-specific settings forms, schema validation at save time, connection groups and per-tool key grants remain future work.
+Kubernetes port-forward/watch, MongoDB SRV, Redis Cluster/Sentinel, structured protocol-specific settings forms, schema validation at save time, connection groups and per-tool key grants remain future work.
 
 Automated local tests cover RDP negotiation/TLS pinning, missing credentials, authentication-worker failure, timeout and cleanup, session ownership, input validation, count/idle limits and revocation, plus SQLite reads/writes, parameter binding, output limits, configuration-file isolation, HTTPS with real TLS fixtures, target restrictions, redirects, proxy failure without fallback, MCP tool registration/audit, live CIDR policy, key lifecycle, proxy chains and S3/SSH file delivery. Run `./scripts/test-native-fixtures.sh` to create disposable loopback-only MySQL and Redis containers, test native driver authentication/operations and permissions, then remove the fixtures. It requires Docker and never uses existing database services.
 

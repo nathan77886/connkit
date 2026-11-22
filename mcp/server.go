@@ -3,6 +3,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nathan77886/connkit/internal/files"
@@ -23,6 +24,7 @@ func New(s *store.Store, anonymous bool, cidrs []netip.Prefix, origins []string)
 
 // NewWithOperations shares a process-wide desktop session manager across listeners.
 func NewWithOperations(s *store.Store, anonymous bool, cidrs []netip.Prefix, origins []string, ops *operations.Service) http.Handler {
+	fileService := files.New(s)
 	transport := sdk.NewStreamableHTTPHandler(func(r *http.Request) *sdk.Server {
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		server := sdk.NewServer(&sdk.Implementation{Name: "connkit", Version: "0.1.0-dev"}, nil)
@@ -33,23 +35,26 @@ func NewWithOperations(s *store.Store, anonymous bool, cidrs []netip.Prefix, ori
 			}
 			return nil, map[string]any{"connections": connections}, nil
 		})
-		service := files.New(s)
 		actor := files.Actor{Token: token, Anonymous: anonymous}
 		sdk.AddTool(server, &sdk.Tool{Name: "files_prepare_upload", Description: "Prepare a private S3 upload bound to an SSH target and absolute path. PUT the bytes to the returned URL using its headers, then call files_deliver."}, func(ctx context.Context, _ *sdk.CallToolRequest, in files.PrepareInput) (*sdk.CallToolResult, any, error) {
-			out, err := service.Prepare(ctx, actor, in)
+			out, err := fileService.Prepare(ctx, actor, in)
 			return nil, out, err
 		})
 		sdk.AddTool(server, &sdk.Tool{Name: "files_deliver", Description: "After uploading, ask the target to download and verify the file. Existing destination files are never overwritten. Do not automatically retry an unknown outcome."}, func(ctx context.Context, _ *sdk.CallToolRequest, in fileInput) (*sdk.CallToolResult, any, error) {
-			out, err := service.Deliver(ctx, actor, in.ID)
+			out, err := fileService.Deliver(ctx, actor, in.ID)
 			return nil, out, err
 		})
 		sdk.AddTool(server, &sdk.Tool{Name: "files_status", Description: "Read transfer state without exposing signed URLs or credentials."}, func(ctx context.Context, _ *sdk.CallToolRequest, in fileInput) (*sdk.CallToolResult, any, error) {
-			out, err := service.Status(ctx, actor, in.ID)
+			out, err := fileService.Status(ctx, actor, in.ID)
 			return nil, out, err
 		})
 		sdk.AddTool(server, &sdk.Tool{Name: "files_remove", Description: "Delete the staged cloud object; leaves the target file unchanged. Upload URLs remain valid until their expiry."}, func(ctx context.Context, _ *sdk.CallToolRequest, in fileInput) (*sdk.CallToolResult, any, error) {
-			err := service.Remove(ctx, actor, in.ID)
+			err := fileService.Remove(ctx, actor, in.ID)
 			return nil, map[string]bool{"removed": err == nil}, err
+		})
+		sdk.AddTool(server, &sdk.Tool{Name: "files_upload_status", Description: "Read the status of an asynchronous ZIP-to-R2 upload submitted to /mcp/upload."}, func(ctx context.Context, _ *sdk.CallToolRequest, in fileInput) (*sdk.CallToolResult, any, error) {
+			out, err := fileService.ArchiveStatus(ctx, actor, in.ID)
+			return nil, out, err
 		})
 		caller, _, _ := net.SplitHostPort(r.RemoteAddr)
 		registerOperations(server, s, token, anonymous, caller, ops)
@@ -65,7 +70,7 @@ func NewWithOperations(s *store.Store, anonymous bool, cidrs []netip.Prefix, ori
 			_, _ = w.Write([]byte("ok\n"))
 			return
 		}
-		if r.URL.Path != "/mcp" {
+		if r.URL.Path != "/mcp" && r.URL.Path != "/mcp/upload" && !strings.HasPrefix(r.URL.Path, "/mcp/upload-tasks/") {
 			http.NotFound(w, r)
 			return
 		}
@@ -115,9 +120,6 @@ func NewWithOperations(s *store.Store, anonymous bool, cidrs []netip.Prefix, ori
 				return
 			}
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
-		defer cancel()
-		r = r.WithContext(ctx)
 		if !anonymous {
 			header := r.Header.Get("Authorization")
 			if !strings.HasPrefix(header, "Bearer ") {
@@ -125,11 +127,44 @@ func NewWithOperations(s *store.Store, anonymous bool, cidrs []netip.Prefix, ori
 				http.Error(w, "API key required", http.StatusUnauthorized)
 				return
 			}
-			if _, err := s.AuthorizedConnections(ctx, strings.TrimPrefix(header, "Bearer "), false); err != nil {
+			if _, err := s.AuthorizedConnections(r.Context(), strings.TrimPrefix(header, "Bearer "), false); err != nil {
 				http.Error(w, "invalid API key", http.StatusUnauthorized)
 				return
 			}
 		}
+		if r.URL.Path == "/mcp/upload" {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, 200<<30+1)
+			task, err := fileService.UploadArchive(r.Context(), files.Actor{Token: strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), Anonymous: anonymous}, r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(task)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/mcp/upload-tasks/") {
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			id := strings.TrimPrefix(r.URL.Path, "/mcp/upload-tasks/")
+			task, err := fileService.ArchiveStatus(r.Context(), files.Actor{Token: strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), Anonymous: anonymous}, id)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(task)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+		defer cancel()
+		r = r.WithContext(ctx)
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		transport.ServeHTTP(w, r)
 	})
