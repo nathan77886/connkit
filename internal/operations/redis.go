@@ -63,30 +63,13 @@ func (s *Service) redis(ctx context.Context, c store.Connection, cfg Settings, t
 		}
 		return map[string]any{"keys": keys, "cursor": cursor}, nil
 	case "redis_read":
-		// Only bounded operations are exposed here. Target Redis ACLs enforce read permissions.
-		command := strings.ToUpper(in.Command)
-		switch command {
-		case "TYPE", "EXISTS", "TTL", "PTTL", "STRLEN", "LLEN", "SCARD", "ZCARD", "HLEN":
-			if len(in.Args) != 1 {
-				return nil, errors.New("one key required")
-			}
-		case "GETRANGE":
-			if len(in.Args) != 3 {
-				return nil, errors.New("key, start, end required")
-			}
-			start, e1 := strconv.ParseInt(in.Args[1], 10, 64)
-			end, e2 := strconv.ParseInt(in.Args[2], 10, 64)
-			if e1 != nil || e2 != nil || start < 0 || end < start || end-start > MaxBytes/4 {
-				return nil, errors.New("bounded positive byte range required")
-			}
-		case "HGET":
-			if len(in.Args) != 2 {
-				return nil, errors.New("key and field required")
-			}
-		default:
-			return nil, errors.New("use TYPE, EXISTS, TTL, PTTL, STRLEN, LLEN, SCARD, ZCARD, HLEN, GETRANGE or HGET")
+		// Target Redis ACLs decide which commands the account may run.
+		// redis_read is a compatibility name for the same passthrough used by
+		// redis_command; callers choose reads or writes for the task.
+		if strings.TrimSpace(in.Command) == "" {
+			return nil, errors.New("a Redis command is required")
 		}
-		return redisDo(ctx, client, command, in.Args)
+		return redisDo(ctx, client, in.Command, in.Args)
 	case "redis_command":
 		if strings.TrimSpace(in.Command) == "" {
 			return nil, errors.New("a Redis command is required")

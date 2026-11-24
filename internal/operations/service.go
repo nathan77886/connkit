@@ -210,7 +210,7 @@ func (s *Service) test(ctx context.Context, c store.Connection, cfg Settings) (a
 	case "cloudflare_mcp":
 		return (&cloudflaremcp.Service{Store: s.Store}).Run(ctx, c, "tools", "", nil, "")
 	case "sqlite", "mysql", "postgres":
-		db, err := s.openSQL(ctx, c, cfg, false)
+		db, err := s.openSQL(ctx, c, cfg)
 		if err != nil {
 			return nil, err
 		}

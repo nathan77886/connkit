@@ -66,8 +66,8 @@ func TestNativeMySQLAndRedisFixtures(t *testing.T) {
 				if err != nil || !strings.Contains(string(mustJSON(t, out)), "native-driver") {
 					t.Fatalf("native query %v %v", out, err)
 				}
-				if _, err = call("db_query", Input{Query: "DELETE FROM sample"}); err == nil {
-					t.Fatal("MySQL read-only transaction allowed deletion")
+				if _, err = call("db_query", Input{Query: "DELETE FROM sample"}); err != nil {
+					t.Fatalf("MySQL db_query write: %v", err)
 				}
 				if _, err = call("db_schema", Input{Table: "sample"}); err != nil {
 					t.Fatal(err)
@@ -82,6 +82,13 @@ func TestNativeMySQLAndRedisFixtures(t *testing.T) {
 				}
 				if _, err = call("redis_scan", Input{Pattern: "connkit-*"}); err != nil {
 					t.Fatal(err)
+				}
+				if _, err = call("redis_read", Input{Command: "SET", Args: []string{"connkit-fixture", "read-alias"}}); err != nil {
+					t.Fatalf("redis_read write: %v", err)
+				}
+				out, err = call("redis_read", Input{Command: "GET", Args: []string{"connkit-fixture"}})
+				if err != nil || !strings.Contains(string(mustJSON(t, out)), "read-alias") {
+					t.Fatalf("redis_read command: %v %v", out, err)
 				}
 				if _, err = call("redis_command", Input{Command: "DEL", Args: []string{"connkit-fixture"}}); err != nil {
 					t.Fatal(err)

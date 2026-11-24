@@ -66,9 +66,11 @@ func TestSQLToolSemanticsBindingsAndConnectionAuthorization(t *testing.T) {
 			t.Fatalf("%s: %v", tool, err)
 		}
 	}
-	for _, query := range []string{"DELETE FROM sample", "PRAGMA query_only=off; DELETE FROM sample", "ATTACH DATABASE 'file:other?mode=memory' AS other", "SELECT load_extension('anything')"} {
+	// Statements keep the target file's capabilities; only attachment and
+	// extension loading remain denied so the configured path cannot escape.
+	for _, query := range []string{"ATTACH DATABASE 'file:other?mode=memory' AS other", "SELECT load_extension('anything')"} {
 		if _, err = call("db_query", query); err == nil {
-			t.Fatalf("read-only bypass: %s", query)
+			t.Fatalf("unsafe SQL allowed: %s", query)
 		}
 	}
 	// Legacy false flags do not restrict an authorized connection.
@@ -84,6 +86,14 @@ func TestSQLToolSemanticsBindingsAndConnectionAuthorization(t *testing.T) {
 	out, err = call("db_query", "SELECT value FROM sample ORDER BY id")
 	if err != nil || !strings.Contains(string(mustJSON(t, out)), `"truncated":true`) {
 		t.Fatalf("limit: %v %v", out, err)
+	}
+	// db_query can also modify rows; the target account decides privileges.
+	if _, err = call("db_query", "DELETE FROM sample WHERE value = ?", "first"); err != nil {
+		t.Fatalf("db_query write: %v", err)
+	}
+	out, err = call("db_query", "SELECT value FROM sample ORDER BY id")
+	if err != nil || strings.Contains(string(mustJSON(t, out)), "first") {
+		t.Fatalf("db_query write not applied: %v %v", out, err)
 	}
 	var key store.Key
 	s.Store.DB.First(&key)

@@ -4,7 +4,7 @@ All tools use a registered `connection_id`; callers cannot replace the target cr
 
 Results are limited to 1 MiB of serialized JSON. Default result count is 100, maximum 1,000. Calls default to 30 seconds; set `timeout_seconds` between 1 and 120. Truncated results explicitly report `truncated`. A single native driver value can occupy more memory before the serialized result limit is checked; these limits are not a sandbox for hostile servers.
 
-A configured connection authorizes its supported operations for callers who have access to that connection. There are no per-connection read/write, shell-execution or desktop-input switches. The calling agent chooses whether to inspect or modify according to the user's task instructions; ConnKit does not interpret prompts. Target database roles, Redis ACLs, MongoDB roles, Kubernetes RBAC, SSH accounts and cloud OAuth scopes remain effective. Legacy `allow_write`, `allow_exec` and `allow_rdp_input` settings are ignored. No tool automatically retries a potentially completed write.
+A configured connection authorizes its supported operations for callers who have access to that connection. There are no per-connection read/write, shell-execution or desktop-input switches, and ConnKit does not impose engine-level read-only SQL transactions or read-only Redis command lists. The calling agent chooses whether to inspect or modify according to the user's task instructions; ConnKit does not interpret prompts. Target database roles, Redis ACLs, MongoDB roles, Kubernetes RBAC, SSH accounts and cloud OAuth scopes remain effective. Legacy `allow_write`, `allow_exec` and `allow_rdp_input` settings are ignored and removed when settings are saved. No tool automatically retries a potentially completed write.
 
 ## SQL: SQLite, MySQL and PostgreSQL
 
@@ -14,7 +14,7 @@ SQLite:
 {"path":"/targets/example.db"}
 ```
 
-The file must already exist at an absolute path, without a proxy. Mount target files separately from the configuration volume. ConnKit refuses its own configuration database, including symlink and hardlink aliases. `db_query`, `db_tables` and `db_schema` open in read-only/query-only mode and use an SQLite authorizer to deny mutation, attachment and extension loading.
+The file must already exist at an absolute path, without a proxy. Mount target files separately from the configuration volume. ConnKit refuses its own configuration database, including symlink and hardlink aliases. The configured file opens read-write and all SQL tools keep the file's normal capabilities. An SQLite authorizer still denies `ATTACH`/`DETACH` and `load_extension` so the configured path cannot be escaped or used to load code.
 
 MySQL / PostgreSQL:
 
@@ -31,7 +31,7 @@ Omit `port` for the default (3306 or 5432). Optional `ca_pem`, `client_cert_pem`
 | `db_query` | `query`, `params` array, optional `limit` |
 | `db_execute` | `query`, `params` array |
 
-Queries run inside read-only transactions on MySQL and PostgreSQL; SQLite has separate driver enforcement. This does not make a privileged target account safe for arbitrary SQL or functions with external side effects. The database account determines privileges; callers choose `db_query` or `db_execute` according to the task. Multiple statements are disabled by the MySQL driver and PostgreSQL prepared statement mode. JSON integer parameters are decoded exactly into int64; larger integers must be supplied as explicit strings. Decimal parameters are passed as decimal strings to avoid float64 rounding. Placeholders retain native syntax: `?` for SQLite/MySQL and `$1`, `$2` for PostgreSQL. No target schema migration occurs.
+Statements run with the target account's permissions; ConnKit does not wrap them in read-only transactions. This does not make a privileged target account safe for arbitrary SQL or functions with external side effects. The database account determines privileges; callers choose `db_query` or `db_execute` according to the task. Multiple statements are disabled by the MySQL driver and PostgreSQL prepared statement mode. JSON integer parameters are decoded exactly into int64; larger integers must be supplied as explicit strings. Decimal parameters are passed as decimal strings to avoid float64 rounding. Placeholders retain native syntax: `?` for SQLite/MySQL and `$1`, `$2` for PostgreSQL. No target schema migration occurs.
 
 Example: `{"connection_id":1,"query":"SELECT id, name FROM users WHERE id = $1","params":[42],"limit":20}`.
 
@@ -139,8 +139,8 @@ The terminal tool opens `/bin/sh` inside the chosen container through the panel 
 ```
 
 - `redis_scan`: optional `cursor`, `pattern`, `limit`; returns keys and next cursor. Redis COUNT is a hint and may return more keys. Continue until the cursor is zero.
-- `redis_read`: `command`, `args` strings. Supported commands: TYPE, EXISTS, TTL, PTTL, STRLEN, LLEN, SCARD, ZCARD, HLEN, bounded GETRANGE (nonnegative start/end), HGET.
-- `redis_command`: arbitrary `command` and `args`. Use a constrained Redis ACL.
+- `redis_read`: `command`, `args` strings. Runs any command; retained as a compatibility alias of `redis_command`.
+- `redis_command`: arbitrary `command` and `args`. Use a constrained Redis ACL when the target account should not write.
 
 Standalone Redis is supported. Cluster/Sentinel discovery and streaming commands are not provided. Driver command retries are disabled. TLS is applied inside the route-aware dialer, with certificate and hostname verification.
 

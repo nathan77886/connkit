@@ -45,7 +45,7 @@ func tlsConfig(cfg Settings, host string) (*tls.Config, error) {
 	return t, nil
 }
 
-func (s *Service) openSQL(ctx context.Context, c store.Connection, cfg Settings, write bool) (*sql.DB, error) {
+func (s *Service) openSQL(ctx context.Context, c store.Connection, cfg Settings) (*sql.DB, error) {
 	dial := func(dialCtx context.Context, _ string, addr string) (net.Conn, error) {
 		return (&route.Dialer{Store: s.Store}).DialForOperation(ctx, dialCtx, c.ProxyID, addr)
 	}
@@ -72,20 +72,13 @@ func (s *Service) openSQL(ctx context.Context, c store.Connection, cfg Settings,
 				return nil, errors.New("configuration database cannot be a target")
 			}
 		}
-		mode := "ro"
-		if write {
-			mode = "rw"
-		}
 		u := url.URL{Scheme: "file", Path: target}
 		q := u.Query()
-		q.Set("mode", mode)
+		q.Set("mode", "rw")
 		q.Set("_busy_timeout", "5000")
 		q.Set("_foreign_keys", "on")
-		if !write {
-			q.Set("_query_only", "1")
-		}
 		u.RawQuery = q.Encode()
-		db = sql.OpenDB(sqliteConnector{dsn: u.String(), readOnly: !write})
+		db = sql.OpenDB(sqliteConnector{dsn: u.String()})
 	case "mysql":
 		addr, err := address(cfg, 3306)
 		if err != nil {
@@ -149,13 +142,12 @@ func (s *Service) sql(ctx context.Context, c store.Connection, cfg Settings, too
 	if tool != "db_query" && tool != "db_execute" && tool != "db_tables" && tool != "db_schema" {
 		return nil, errors.New("unsupported SQL operation")
 	}
-	write := tool == "db_execute"
-	db, err := s.openSQL(ctx, c, cfg, write)
+	db, err := s.openSQL(ctx, c, cfg)
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
-	if write {
+	if tool == "db_execute" {
 		result, err := db.ExecContext(ctx, in.Query, in.Params...)
 		if err != nil {
 			return nil, errors.New("SQL execution failed; outcome may be unknown, do not automatically retry")
@@ -166,15 +158,6 @@ func (s *Service) sql(ctx context.Context, c store.Connection, cfg Settings, too
 		}
 		return map[string]any{"rows_affected": n}, nil
 	}
-	var opts *sql.TxOptions
-	if c.Type != "sqlite" {
-		opts = &sql.TxOptions{ReadOnly: true}
-	}
-	tx, err := db.BeginTx(ctx, opts)
-	if err != nil {
-		return nil, errors.New("read-only transaction failed")
-	}
-	defer tx.Rollback()
 	switch tool {
 	case "db_tables":
 		in.Params = nil
@@ -197,7 +180,7 @@ func (s *Service) sql(ctx context.Context, c store.Connection, cfg Settings, too
 			in.Query = "SELECT table_schema,column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_name = $1 ORDER BY table_schema,ordinal_position"
 		}
 	}
-	rows, err := tx.QueryContext(ctx, in.Query, in.Params...)
+	rows, err := db.QueryContext(ctx, in.Query, in.Params...)
 	if err != nil {
 		return nil, errors.New("SQL query failed")
 	}
@@ -205,6 +188,17 @@ func (s *Service) sql(ctx context.Context, c store.Connection, cfg Settings, too
 	columns, err := rows.Columns()
 	if err != nil {
 		return nil, errors.New("column discovery failed")
+	}
+	if len(columns) == 0 {
+		// A statement without a result set (for example INSERT or UPDATE) is
+		// complete once stepped; db_execute reports rows affected.
+		if rows.Next() {
+			return nil, errors.New("unexpected row without columns")
+		}
+		if rows.Err() != nil {
+			return nil, errors.New("SQL execution failed; outcome may be unknown, do not automatically retry")
+		}
+		return map[string]any{"completed": true}, nil
 	}
 	data := [][]any{}
 	size := 0
@@ -250,8 +244,7 @@ func sameFile(a, b string) bool {
 }
 
 type sqliteConnector struct {
-	dsn      string
-	readOnly bool
+	dsn string
 }
 
 func (c sqliteConnector) Driver() driver.Driver { return &sqlite3.SQLiteDriver{} }
@@ -260,30 +253,17 @@ func (c sqliteConnector) Connect(ctx context.Context) (driver.Conn, error) {
 		return nil, err
 	}
 	d := &sqlite3.SQLiteDriver{ConnectHook: func(conn *sqlite3.SQLiteConn) error {
-		conn.RegisterAuthorizer(func(op int, a, b, _ string) int {
+		// Statements keep the target file's full capabilities; only attachment
+		// and extension loading are denied so the configured path cannot be
+		// escaped or used to load code.
+		conn.RegisterAuthorizer(func(op int, _, b, _ string) int {
 			if op == sqlite3.SQLITE_ATTACH || op == sqlite3.SQLITE_DETACH {
 				return sqlite3.SQLITE_DENY
 			}
 			if op == sqlite3.SQLITE_FUNCTION && strings.EqualFold(b, "load_extension") {
 				return sqlite3.SQLITE_DENY
 			}
-			if !c.readOnly {
-				return sqlite3.SQLITE_OK
-			}
-			switch op {
-			case sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_TRANSACTION, sqlite3.SQLITE_SAVEPOINT, 33 /* SQLITE_RECURSIVE (not exported by go-sqlite3) */ :
-				return sqlite3.SQLITE_OK
-			case sqlite3.SQLITE_FUNCTION:
-				if strings.EqualFold(b, "load_extension") {
-					return sqlite3.SQLITE_DENY
-				}
-				return sqlite3.SQLITE_OK
-			case sqlite3.SQLITE_PRAGMA:
-				if strings.EqualFold(a, "table_info") {
-					return sqlite3.SQLITE_OK
-				}
-			}
-			return sqlite3.SQLITE_DENY
+			return sqlite3.SQLITE_OK
 		})
 		return nil
 	}}

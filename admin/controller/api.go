@@ -180,6 +180,20 @@ func (a *API) ListConnections(ctx iris.Context) {
 	respond(ctx, out)
 }
 
+// withoutLegacyPermissions removes retired connection-level capability flags.
+// Access to a connection authorizes its operations; target credentials, roles
+// and ACLs decide whether a read or a change is permitted.
+func withoutLegacyPermissions(raw json.RawMessage) ([]byte, error) {
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &settings); err != nil || settings == nil {
+		return nil, errors.New("settings must be a JSON object")
+	}
+	for _, key := range []string{"allow_write", "allow_exec", "allow_rdp_input"} {
+		delete(settings, key)
+	}
+	return json.Marshal(settings)
+}
+
 // SaveConnection persists encrypted protocol settings; omitted settings preserve them on update.
 func (a *API) SaveConnection(ctx iris.Context) {
 	a.configMu.Lock()
@@ -223,7 +237,12 @@ func (a *API) SaveConnection(ctx iris.Context) {
 	out.Enabled = in.Enabled
 	out.AllowAnonymous = in.AllowAnonymous
 	if len(in.Settings) > 0 {
-		secret, err := a.s.Encrypt(in.Settings)
+		settings, err := withoutLegacyPermissions(in.Settings)
+		if err != nil {
+			fail(ctx, 400, "invalid settings")
+			return
+		}
+		secret, err := a.s.Encrypt(settings)
 		if err != nil {
 			fail(ctx, 400, "invalid settings")
 			return

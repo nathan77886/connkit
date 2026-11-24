@@ -82,6 +82,26 @@ func TestAdminLoginConfigurationAndKeyLifecycle(t *testing.T) {
 	if status != 200 || strings.Contains(string(body), "panel-key-not-in-response") {
 		t.Fatalf("1Panel save %d %s", status, body)
 	}
+	status, body = call("POST", "/api/v1/connections", token, `{"name":"legacy","type":"ssh","enabled":true,"settings":{"host":"ssh.example","allow_write":true,"allow_exec":false,"allow_rdp_input":true}}`)
+	if status != 200 {
+		t.Fatalf("legacy connection save %d %s", status, body)
+	}
+	var legacy store.Connection
+	if err = s.DB.First(&legacy, "name = ?", "legacy").Error; err != nil {
+		t.Fatal(err)
+	}
+	var legacySettings map[string]any
+	if err = s.Decrypt(legacy.Secret, &legacySettings); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"allow_write", "allow_exec", "allow_rdp_input"} {
+		if _, ok := legacySettings[key]; ok {
+			t.Fatalf("retired permission %s persisted", key)
+		}
+	}
+	if legacySettings["host"] != "ssh.example" {
+		t.Fatal("connection settings changed")
+	}
 	status, body = call("POST", "/api/v1/keys", token, `{"name":"agent","connection_ids":[1]}`)
 	if status != 200 {
 		t.Fatalf("key save %d %s", status, body)
